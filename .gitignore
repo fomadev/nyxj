@@ -1,0 +1,44 @@
+# === Compilations & Binaires ===
+# Executables (Windows and Unix)
+*.exe
+*.out
+nyxj
+nyxj.exe
+
+# Object files and libraries
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.dll
+*.dylib
+
+# === IDE & Editors ===
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# Other editors (Vim, Emacs, etc.)
+*~
+*.swp
+.DS_Store
+
+# === Tests & Debug ===
+# Build folders (if you create one later)
+build/
+bin/
+obj/
+
+# Log and crash files
+*.log
+*.stackdump
+
+# === CUnit / Testing Tools ===
+# If you compile CUnit locally or generate coverage reports
+*.gcda
+*.gcno
+*.gcov
