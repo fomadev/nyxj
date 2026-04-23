@@ -2,7 +2,7 @@
 #include <stdio.h>
 
 int main() {
-    const char* json = "{\"name\": \"NyxJ Engine\", \"version\": 1.1, \"is_stable\": true}";
+    const char* json = "{\"name\": \"NyxJ Engine\", \"version\": 1.0.0, \"is_stable\": true}";
     
     printf("--- NyxJ CLI Debugger ---\n");
     printf("Parsing: %s\n", json);

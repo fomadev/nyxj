@@ -2,6 +2,7 @@
 #define NYXJ_H
 
 #include <stdbool.h>
+#include <stdlib.h>
 
 typedef enum {
     NYXJ_NULL,
@@ -45,12 +46,15 @@ typedef struct {
 
 /* --- Core API --- */
 nyxj_result nyxj_parse(const char* json_str);
-void nyxj_free_value(nyxj_value* v);
+void        nyxj_free_value(nyxj_value* v);
 
 /* --- Getter API --- */
 nyxj_value* nyxj_get_member(nyxj_value* obj, const char* key);
 double      nyxj_get_number(nyxj_value* obj, const char* key);
 const char* nyxj_get_string(nyxj_value* obj, const char* key);
 bool        nyxj_get_bool(nyxj_value* obj, const char* key);
+
+/* --- Generator API --- */
+char* nyxj_serialize(nyxj_value* v);
 
 #endif
