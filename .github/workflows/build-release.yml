@@ -1,0 +1,107 @@
+name: Build and Release NyxJ
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build for ${{ matrix.os }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # --- Linux Configurations ---
+          - os: ubuntu-latest
+            arch: x86_64
+            artifact_name: nyxj-linux-x64
+          - os: ubuntu-latest
+            arch: arm64
+            artifact_name: nyxj-linux-arm64
+          
+          # --- Windows Configurations ---
+          - os: windows-latest
+            arch: x64
+            artifact_name: nyxj-windows-x64
+          
+          # --- macOS Configurations ---
+          - os: macos-latest
+            arch: arm64
+            artifact_name: nyxj-macos-arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Installation des compilateurs spécifiques
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu
+          fi
+
+      # Compilation pour Windows
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          # Utilisation de GCC (MinGW) disponible sur le runner windows
+          gcc src/server.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o nyxj_server.exe -lws2_32
+          cd examples/api_example && make
+          cd ../client_test && make
+
+      # Compilation pour Linux x86_64
+      - name: Build (Linux x64)
+        if: runner.os == 'Linux' && matrix.arch == 'x86_64'
+        run: |
+          gcc src/server.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o nyxj_server -lpthread
+          cd examples/api_example && make
+          cd ../client_test && make
+
+      # Compilation pour Linux ARM64 (Cross-compilation)
+      - name: Build (Linux ARM64)
+        if: runner.os == 'Linux' && matrix.arch == 'arm64'
+        run: |
+          aarch64-linux-gnu-gcc src/server.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o nyxj_server_arm64 -lpthread
+
+      # Compilation pour macOS ARM64 (Natif)
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          gcc src/server.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o nyxj_server_mac
+          cd examples/api_example && make
+          cd ../client_test && make
+
+      # Archivage des fichiers avant l'upload
+      - name: Archive artifacts
+        run: |
+          mkdir dist
+          cp nyxj_server* dist/ || true
+          cp examples/api_example/api_example* dist/ || true
+          cp examples/client_test/client_test* dist/ || true
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/*
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: all-artifacts/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
