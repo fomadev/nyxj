@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* --- Internal Structures --- */
+/* --- Lexer & Parser Internal State --- */
 
 typedef enum {
     TOKEN_LBRACE, TOKEN_RBRACE, TOKEN_LBRACKET, TOKEN_RBRACKET,
@@ -28,18 +28,15 @@ typedef struct {
     bool had_error;
 } Parser;
 
-/* --- Global States --- */
-
 Scanner scanner;
 Parser parser;
 
 /* --- Forward Declarations --- */
-
 static nyxj_value* parse_value();
 static nyxj_value* parse_object();
 static nyxj_value* parse_array();
 
-/* --- Scanner & Lexer Logic --- */
+/* --- Scanner Logic --- */
 
 void init_scanner(const char* source) {
     scanner.start = source;
@@ -84,22 +81,17 @@ nyxj_token next_token() {
     skip_whitespace();
     nyxj_token token;
     token.start = scanner.current;
-    
     if (*scanner.current == '\0') {
-        token.type = TOKEN_EOF;
-        token.length = 0;
+        token.type = TOKEN_EOF; token.length = 0;
         return token;
     }
-
     char c = *scanner.current++;
-
     if (is_alpha(c)) {
         while (is_alpha(*scanner.current)) scanner.current++;
         token.type = identifier_type(token.start);
         token.length = (int)(scanner.current - token.start);
         return token;
     }
-
     if (is_digit(c) || c == '-') {
         while (is_digit(*scanner.current)) scanner.current++;
         if (*scanner.current == '.' && is_digit(scanner.current[1])) {
@@ -110,7 +102,6 @@ nyxj_token next_token() {
         token.length = (int)(scanner.current - token.start);
         return token;
     }
-
     switch (c) {
         case '{': token.type = TOKEN_LBRACE; token.length = 1; return token;
         case '}': token.type = TOKEN_RBRACE; token.length = 1; return token;
@@ -128,12 +119,11 @@ nyxj_token next_token() {
             token.length = (int)(scanner.current - token.start);
             return token;
     }
-    token.type = TOKEN_ERROR;
-    token.length = 1;
+    token.type = TOKEN_ERROR; token.length = 1;
     return token;
 }
 
-/* --- Parser Infrastructure --- */
+/* --- Parser Implementation --- */
 
 static void advance() {
     parser.previous = parser.current;
@@ -145,14 +135,11 @@ static void advance() {
 }
 
 static bool check(nyxj_token_type type) { return parser.current.type == type; }
-
 static bool match(nyxj_token_type type) {
     if (!check(type)) return false;
     advance();
     return true;
 }
-
-/* --- Recursive Descent with Data Storage --- */
 
 static nyxj_value* create_value(nyxj_type type) {
     nyxj_value* v = malloc(sizeof(nyxj_value));
@@ -163,7 +150,6 @@ static nyxj_value* create_value(nyxj_type type) {
 static nyxj_value* parse_value() {
     if (match(TOKEN_STRING)) {
         nyxj_value* v = create_value(NYXJ_STRING);
-        // Copying string without quotes
         int len = parser.previous.length - 2;
         v->as.string = malloc(len + 1);
         memcpy(v->as.string, parser.previous.start + 1, len);
@@ -177,22 +163,16 @@ static nyxj_value* parse_value() {
     }
     if (match(TOKEN_TRUE)) {
         nyxj_value* v = create_value(NYXJ_BOOL);
-        v->as.boolean = true;
-        return v;
+        v->as.boolean = true; return v;
     }
     if (match(TOKEN_FALSE)) {
         nyxj_value* v = create_value(NYXJ_BOOL);
-        v->as.boolean = false;
-        return v;
+        v->as.boolean = false; return v;
     }
-    if (match(TOKEN_NULL)) {
-        return create_value(NYXJ_NULL);
-    }
+    if (match(TOKEN_NULL)) return create_value(NYXJ_NULL);
     if (match(TOKEN_LBRACE)) return parse_object();
     if (match(TOKEN_LBRACKET)) return parse_array();
-
-    parser.had_error = true;
-    return NULL;
+    parser.had_error = true; return NULL;
 }
 
 static nyxj_value* parse_object() {
@@ -200,31 +180,23 @@ static nyxj_value* parse_object() {
     obj_val->as.object.pairs = NULL;
     obj_val->as.object.count = 0;
     nyxj_pair* last_pair = NULL;
-
     if (!check(TOKEN_RBRACE)) {
         do {
-            if (!match(TOKEN_STRING)) { parser.had_error = true; return obj_val; }
-            
+            if (!match(TOKEN_STRING)) { parser.had_error = true; break; }
             nyxj_pair* pair = malloc(sizeof(nyxj_pair));
             int key_len = parser.previous.length - 2;
             pair->key = malloc(key_len + 1);
             memcpy(pair->key, parser.previous.start + 1, key_len);
             pair->key[key_len] = '\0';
             pair->next = NULL;
-
-            if (!match(TOKEN_COLON)) { parser.had_error = true; return obj_val; }
-
+            if (!match(TOKEN_COLON)) { parser.had_error = true; break; }
             pair->value = parse_value();
-
             if (last_pair == NULL) obj_val->as.object.pairs = pair;
             else last_pair->next = pair;
-            
             last_pair = pair;
             obj_val->as.object.count++;
-
         } while (match(TOKEN_COMMA));
     }
-
     if (!match(TOKEN_RBRACE)) parser.had_error = true;
     return obj_val;
 }
@@ -233,8 +205,6 @@ static nyxj_value* parse_array() {
     nyxj_value* arr_val = create_value(NYXJ_ARRAY);
     arr_val->as.array.count = 0;
     arr_val->as.array.items = NULL;
-
-    // Simplified dynamic array growth
     if (!check(TOKEN_RBRACKET)) {
         do {
             nyxj_value* item = parse_value();
@@ -243,26 +213,74 @@ static nyxj_value* parse_array() {
             arr_val->as.array.items[arr_val->as.array.count - 1] = item;
         } while (match(TOKEN_COMMA));
     }
-
     if (!match(TOKEN_RBRACKET)) parser.had_error = true;
     return arr_val;
 }
 
-/* --- Public API --- */
+/* --- Cleanup --- */
+
+void nyxj_free_value(nyxj_value* v) {
+    if (v == NULL) return;
+    switch (v->type) {
+        case NYXJ_STRING: free(v->as.string); break;
+        case NYXJ_ARRAY:
+            for (int i = 0; i < v->as.array.count; i++) nyxj_free_value(v->as.array.items[i]);
+            free(v->as.array.items);
+            break;
+        case NYXJ_OBJECT: {
+            nyxj_pair* pair = v->as.object.pairs;
+            while (pair != NULL) {
+                nyxj_pair* next = pair->next;
+                free(pair->key);
+                nyxj_free_value(pair->value);
+                free(pair);
+                pair = next;
+            }
+            break;
+        }
+        default: break;
+    }
+    free(v);
+}
+
+/* --- Getter API Implementation --- */
+
+nyxj_value* nyxj_get_member(nyxj_value* obj, const char* key) {
+    if (obj == NULL || obj->type != NYXJ_OBJECT) return NULL;
+    nyxj_pair* pair = obj->as.object.pairs;
+    while (pair != NULL) {
+        if (strcmp(pair->key, key) == 0) return pair->value;
+        pair = pair->next;
+    }
+    return NULL;
+}
+
+double nyxj_get_number(nyxj_value* obj, const char* key) {
+    nyxj_value* m = nyxj_get_member(obj, key);
+    return (m && m->type == NYXJ_NUMBER) ? m->as.number : 0.0;
+}
+
+const char* nyxj_get_string(nyxj_value* obj, const char* key) {
+    nyxj_value* m = nyxj_get_member(obj, key);
+    return (m && m->type == NYXJ_STRING) ? m->as.string : NULL;
+}
+
+bool nyxj_get_bool(nyxj_value* obj, const char* key) {
+    nyxj_value* m = nyxj_get_member(obj, key);
+    return (m && m->type == NYXJ_BOOL) ? m->as.boolean : false;
+}
+
+/* --- Public Entry Point --- */
 
 nyxj_result nyxj_parse(const char* json_str) {
     init_scanner(json_str);
     parser.had_error = false;
     advance();
-
     nyxj_value* root = parse_value();
-
     if (!check(TOKEN_EOF)) parser.had_error = true;
-
     nyxj_result result;
     result.is_valid = !parser.had_error;
     result.error_msg = parser.had_error ? "Invalid JSON syntax" : NULL;
     result.root = root;
-    
     return result;
 }
