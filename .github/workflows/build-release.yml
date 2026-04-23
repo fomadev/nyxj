@@ -1,7 +1,9 @@
-name: Build and Release NyxJ
+name: Build NyxJ Multi-Platform
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
 
@@ -12,29 +14,23 @@ jobs:
     strategy:
       matrix:
         include:
-          # --- Linux Configurations ---
           - os: ubuntu-latest
             arch: x86_64
-            artifact_name: nyxj-linux-x64
+            suffix: linux-x64
           - os: ubuntu-latest
             arch: arm64
-            artifact_name: nyxj-linux-arm64
-          
-          # --- Windows Configurations ---
+            suffix: linux-arm64
           - os: windows-latest
             arch: x64
-            artifact_name: nyxj-windows-x64
-          
-          # --- macOS Configurations ---
+            suffix: windows-x64
           - os: macos-latest
             arch: arm64
-            artifact_name: nyxj-macos-arm64
+            suffix: macos-arm64
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Installation des compilateurs spécifiques
       - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -44,64 +40,49 @@ jobs:
             sudo apt-get install -y gcc-aarch64-linux-gnu
           fi
 
-      # Compilation pour Windows
-      - name: Build (Windows)
+      # --- COMPILATION STEP --- 
+
+      - name: Build All (Windows)
         if: runner.os == 'Windows'
         run: |
-          # Utilisation de GCC (MinGW) disponible sur le runner windows
-          gcc src/server.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o nyxj_server.exe -lws2_32
-          cd examples/api_example && make
-          cd ../client_test && make
+          gcc src/server.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o nyxj-windows-x64.exe -lws2_32
+          cd examples/api_example && gcc api_example.c ../../src/core/parser.c ../../vendor/mongoose/mongoose.c -I../../include -I../../vendor/mongoose -o example-api_example-windows-x64.exe -lws2_32
+          cd ../client_test && gcc client_test.c ../../src/core/parser.c ../../vendor/mongoose/mongoose.c -I../../include -I../../vendor/mongoose -o example-client_test-windows-x64.exe -lws2_32
 
-      # Compilation pour Linux x86_64
-      - name: Build (Linux x64)
+      - name: Build All (Linux x64)
         if: runner.os == 'Linux' && matrix.arch == 'x86_64'
         run: |
-          gcc src/server.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o nyxj_server -lpthread
-          cd examples/api_example && make
-          cd ../client_test && make
+          gcc src/server.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o nyxj-linux-x64 -lpthread
+          cd examples/api_example && make && mv api_example example-api_example-linux-x64
+          cd ../client_test && make && mv client_test example-client_test-linux-x64
 
-      # Compilation pour Linux ARM64 (Cross-compilation)
-      - name: Build (Linux ARM64)
+      - name: Build All (Linux ARM64)
         if: runner.os == 'Linux' && matrix.arch == 'arm64'
         run: |
-          aarch64-linux-gnu-gcc src/server.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o nyxj_server_arm64 -lpthread
+          aarch64-linux-gnu-gcc src/server.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o nyxj-linux-arm64 -lpthread
+          # Pour les exemples en ARM64, on utilise le compilateur croisé directement
+          cd examples/api_example && aarch64-linux-gnu-gcc api_example.c ../../src/core/parser.c ../../vendor/mongoose/mongoose.c -I../../include -I../../vendor/mongoose -o example-api_example-linux-arm64 -lpthread
+          cd ../client_test && aarch64-linux-gnu-gcc client_test.c ../../src/core/parser.c ../../vendor/mongoose/mongoose.c -I../../include -I../../vendor/mongoose -o example-client_test-linux-arm64 -lpthread
 
-      # Compilation pour macOS ARM64 (Natif)
-      - name: Build (macOS)
+      - name: Build All (macOS)
         if: runner.os == 'macOS'
         run: |
-          gcc src/server.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o nyxj_server_mac
-          cd examples/api_example && make
-          cd ../client_test && make
+          gcc src/server.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o nyxj-macos-arm64
+          cd examples/api_example && make && mv api_example example-api_example-macos-arm64
+          cd ../client_test && make && mv client_test example-client_test-macos-arm64
 
-      # Archivage des fichiers avant l'upload
-      - name: Archive artifacts
+      # --- FILE ORGANIZATION ---
+
+      - name: Prepare Artifacts
+        shell: bash
         run: |
-          mkdir dist
-          cp nyxj_server* dist/ || true
-          cp examples/api_example/api_example* dist/ || true
-          cp examples/client_test/client_test* dist/ || true
+          mkdir -p output
+          # On déplace tout ce qui a été compilé vers le dossier output
+          find . -name "nyxj-*" -exec cp {} output/ \;
+          find . -name "example-*" -exec cp {} output/ \;
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
-          path: dist/*
-
-  release:
-    name: Create GitHub Release
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: all-artifacts
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: all-artifacts/**/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: binaires-${{ matrix.suffix }}
+          path: output/*
