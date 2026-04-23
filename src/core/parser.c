@@ -47,6 +47,12 @@ typedef struct {
 Scanner scanner;
 Parser parser;
 
+/* --- Forward Declarations --- */
+
+static void parse_value();
+static void parse_object();
+static void parse_array();
+
 /* --- Lexer Utilities (Scanner) --- */
 
 void init_scanner(const char* source) {
@@ -86,22 +92,8 @@ static nyxj_token_type check_keyword(const char* start, int length, const char* 
     return TOKEN_ERROR;
 }
 
-static nyxj_token_type identifier_type() {
-    switch (scanner.current[-(int)(scanner.current - (scanner.current - (int)(scanner.current - (scanner.current-1))))]) { 
-        // Note: simplified logic to look back from the current position
-    }
-    
-    // Logic for true, false, null
-    const char* s = scanner.current;
-    int len = (int)(scanner.current - (scanner.current - 1)); 
-    
-    // We analyze the first character of the word
-    char first = *(scanner.current - (int)(scanner.current - (scanner.current - (int)(scanner.current - (scanner.current - 1)))) );
-    // Manual check to stay within NyxJ performance goals
-    const char* start = scanner.current;
-    while(is_alpha(*(start-1))) start--; 
-
-    switch (*start) {
+static nyxj_token_type identifier_type(const char* start) {
+    switch (start[0]) {
         case 't': return check_keyword(start, 1, "rue", 3, TOKEN_TRUE);
         case 'f': return check_keyword(start, 1, "alse", 4, TOKEN_FALSE);
         case 'n': return check_keyword(start, 1, "ull", 3, TOKEN_NULL);
@@ -127,7 +119,7 @@ nyxj_token next_token() {
 
     if (is_alpha(c)) {
         while (is_alpha(*scanner.current)) scanner.current++;
-        token.type = identifier_type();
+        token.type = identifier_type(token.start);
         token.length = (int)(scanner.current - token.start);
         return token;
     }
@@ -181,8 +173,6 @@ static void advance() {
     for (;;) {
         parser.current = next_token();
         if (parser.current.type != TOKEN_ERROR) break;
-
-        // Log error or recovery here if needed
         parser.had_error = true;
     }
 }
@@ -197,28 +187,86 @@ static bool match(nyxj_token_type type) {
     return true;
 }
 
-/* --- Recursive Descent Logic (Entry Points) --- */
+/* --- Recursive Descent Parsing Logic --- */
+
+static void parse_value() {
+    if (match(TOKEN_STRING)) return;
+    if (match(TOKEN_NUMBER)) return;
+    if (match(TOKEN_TRUE)) return;
+    if (match(TOKEN_FALSE)) return;
+    if (match(TOKEN_NULL)) return;
+    
+    if (match(TOKEN_LBRACE)) {
+        parse_object();
+        return;
+    }
+    
+    if (match(TOKEN_LBRACKET)) {
+        parse_array();
+        return;
+    }
+    
+    parser.had_error = true; // Unexpected token
+}
+
+static void parse_object() {
+    if (!check(TOKEN_RBRACE)) {
+        do {
+            // 1. Key must be a string
+            if (!match(TOKEN_STRING)) {
+                parser.had_error = true;
+                return;
+            }
+
+            // 2. Colon separator
+            if (!match(TOKEN_COLON)) {
+                parser.had_error = true;
+                return;
+            }
+
+            // 3. Recursive value parsing
+            parse_value();
+
+        } while (match(TOKEN_COMMA));
+    }
+
+    // 4. Closing brace
+    if (!match(TOKEN_RBRACE)) {
+        parser.had_error = true;
+    }
+}
+
+static void parse_array() {
+    if (!check(TOKEN_RBRACKET)) {
+        do {
+            parse_value();
+        } while (match(TOKEN_COMMA));
+    }
+
+    if (!match(TOKEN_RBRACKET)) {
+        parser.had_error = true;
+    }
+}
+
+/* --- Entry Point --- */
 
 nyxj_result nyxj_parse(const char* json_str) {
     init_scanner(json_str);
     parser.had_error = false;
     
-    advance(); // Load the first token
-    
-    // Basic structural check for JSON
-    if (match(TOKEN_LBRACE)) {
-        // TODO: Logic for parsing object: parse_object()
-        printf("Info: JSON Object detected\n");
-    } else if (match(TOKEN_LBRACKET)) {
-        // TODO: Logic for parsing array: parse_array()
-        printf("Info: JSON Array detected\n");
-    } else {
+    advance(); // Initialize first token
+
+    // Parse the root value
+    parse_value();
+
+    // Verify if we reached the end of the string
+    if (!check(TOKEN_EOF)) {
         parser.had_error = true;
     }
 
     nyxj_result result;
     result.is_valid = !parser.had_error;
-    result.error_msg = parser.had_error ? "Invalid JSON format" : NULL;
+    result.error_msg = parser.had_error ? "Invalid JSON syntax" : NULL;
     
     return result;
 }
