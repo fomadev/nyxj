@@ -1,42 +1,8 @@
-name: Build NyxJ Multi-Platform
-
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  workflow_dispatch:
-
-jobs:
-  build:
-    name: Build ${{ matrix.suffix }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            arch: x86_64
-            suffix: linux-x64
-            cc: gcc
-          - os: ubuntu-latest
-            arch: arm64
-            suffix: linux-arm64
-            cc: aarch64-linux-gnu-gcc
-          - os: windows-latest
-            arch: x64
-            suffix: windows-x64
-            cc: gcc
-          - os: macos-latest
-            arch: arm64
-            suffix: macos-arm64
-            cc: clang
-
-    steps:
+steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Dependencies (Linux)
+      - name: Install dependencies (Linux)
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
@@ -45,42 +11,45 @@ jobs:
             sudo apt-get install -y gcc-aarch64-linux-gnu
           fi
 
-      - name: Create Build Directory
-        run: mkdir -p dist
-
-      # --- UNIFIED COMPILATION LOGIC ---
-      
-      - name: Compile Core Server
+      - name: Create Output Dir
         shell: bash
+        run: mkdir -p output
+
+      # --- COMPILATION WINDOWS ---
+      - name: Build All (Windows)
+        if: runner.os == 'Windows'
         run: |
-          EXE_EXT=$([[ "${{ runner.os }}" == "Windows" ]] && echo ".exe" || echo "")
-          ${{ matrix.cc }} src/server.c src/core/parser.c vendor/mongoose/mongoose.c \
-            -Iinclude -Ivendor/mongoose \
-            -o dist/nyxj-server-${{ matrix.suffix }}${EXE_EXT} \
-            $([[ "${{ runner.os }}" == "Windows" ]] && echo "-lws2_32" || echo "-lpthread -ldl")
+          gcc src/server.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o output/nyxj-windows-x64.exe -lws2_32
+          gcc examples/api_example/api_example.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o output/example-api_example-windows-x64.exe -lws2_32
+          gcc examples/client_test/client_test.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o output/example-client_test-windows-x64.exe -lws2_32
 
-      - name: Compile API Example
-        shell: bash
+      # --- COMPILATION LINUX X64 ---
+      - name: Build All (Linux x64)
+        if: runner.os == 'Linux' && matrix.arch == 'x86_64'
         run: |
-          EXE_EXT=$([[ "${{ runner.os }}" == "Windows" ]] && echo ".exe" || echo "")
-          ${{ matrix.cc }} examples/api_example/api_example.c src/core/parser.c vendor/mongoose/mongoose.c \
-            -Iinclude -Ivendor/mongoose \
-            -o dist/example-api-${{ matrix.suffix }}${EXE_EXT} \
-            $([[ "${{ runner.os }}" == "Windows" ]] && echo "-lws2_32" || echo "-lpthread -ldl")
+          gcc src/server.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o output/nyxj-linux-x64 -lpthread
+          gcc examples/api_example/api_example.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o output/example-api_example-linux-x64 -lpthread
+          gcc examples/client_test/client_test.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o output/example-client_test-linux-x64 -lpthread
 
-      - name: Compile Client Test Example
-        shell: bash
+      # --- COMPILATION LINUX ARM64 ---
+      - name: Build All (Linux ARM64)
+        if: runner.os == 'Linux' && matrix.arch == 'arm64'
         run: |
-          EXE_EXT=$([[ "${{ runner.os }}" == "Windows" ]] && echo ".exe" || echo "")
-          ${{ matrix.cc }} examples/client_test/client_test.c src/core/parser.c vendor/mongoose/mongoose.c \
-            -Iinclude -Ivendor/mongoose \
-            -o dist/example-client-${{ matrix.suffix }}${EXE_EXT} \
-            $([[ "${{ runner.os }}" == "Windows" ]] && echo "-lws2_32" || echo "-lpthread -ldl")
+          aarch64-linux-gnu-gcc src/server.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o output/nyxj-linux-arm64 -lpthread
+          aarch64-linux-gnu-gcc examples/api_example/api_example.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o output/example-api_example-linux-arm64 -lpthread
+          aarch64-linux-gnu-gcc examples/client_test/client_test.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o output/example-client_test-linux-arm64 -lpthread
 
-      # --- PACKAGING ---
+      # --- COMPILATION MACOS ---
+      - name: Build All (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          gcc src/server.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o output/nyxj-macos-arm64
+          gcc examples/api_example/api_example.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o output/example-api_example-macos-arm64
+          gcc examples/client_test/client_test.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o output/example-client_test-macos-arm64
 
-      - name: Upload Binaries
+      # --- UPLOAD ---
+      - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: nyxj-binaries-${{ matrix.suffix }}
-          path: dist/*
+          name: binaires-${{ matrix.suffix }}
+          path: output/*
