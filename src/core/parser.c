@@ -227,7 +227,7 @@ char* nyxj_serialize(nyxj_value* v) {
     return buf;
 }
 
-/* --- Cleanup & Public API --- */
+/* --- Cleanup --- */
 
 void nyxj_free_value(nyxj_value* v) {
     if (!v) return;
@@ -241,6 +241,35 @@ void nyxj_free_value(nyxj_value* v) {
     }
     free(v);
 }
+
+/* --- Getter API Implementation --- */
+
+nyxj_value* nyxj_get_member(nyxj_value* obj, const char* key) {
+    if (obj == NULL || obj->type != NYXJ_OBJECT) return NULL;
+    nyxj_pair* pair = obj->as.object.pairs;
+    while (pair != NULL) {
+        if (strcmp(pair->key, key) == 0) return pair->value;
+        pair = pair->next;
+    }
+    return NULL;
+}
+
+const char* nyxj_get_string(nyxj_value* obj, const char* key) {
+    nyxj_value* m = nyxj_get_member(obj, key);
+    return (m && m->type == NYXJ_STRING) ? m->as.string : NULL;
+}
+
+double nyxj_get_number(nyxj_value* obj, const char* key) {
+    nyxj_value* m = nyxj_get_member(obj, key);
+    return (m && m->type == NYXJ_NUMBER) ? m->as.number : 0.0;
+}
+
+bool nyxj_get_bool(nyxj_value* obj, const char* key) {
+    nyxj_value* m = nyxj_get_member(obj, key);
+    return (m && m->type == NYXJ_BOOL) ? m->as.boolean : false;
+}
+
+/* --- Public API --- */
 
 nyxj_result nyxj_parse(const char* json_str) {
     scanner.start = json_str; scanner.current = json_str;
