@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic API Interface</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+        body { font-family: 'Inter', sans-serif; }
+        .glass { background: rgba(255, 255, 255, 0.95); backdrop-filter: blur(10px); }
+        .input-focus:focus { outline: none; border-color: #2563eb; ring: 2px; ring-color: #dbeafe; }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen flex items-center justify-center p-6">
+
+    <div class="max-w-md w-full glass rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
+        <div class="bg-gradient-to-r from-blue-600 to-indigo-700 p-6 text-white">
+            <div class="flex justify-between items-center">
+                <h2 class="text-xl font-bold tracking-tight">Greetings API</h2>
+                <i class="fas fa-paper-plane opacity-80"></i>
+            </div>
+            <p class="text-blue-100 text-sm mt-1">Customize your request</p>
+        </div>
+
+        <div class="p-8">
+            <div class="mb-6">
+                <label for="userName" class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2 px-1">Your Name</label>
+                <div class="relative">
+                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                        <i class="fas fa-user text-slate-400 text-sm"></i>
+                    </div>
+                    <input type="text" id="userName" placeholder="Ex: MOLENGO MALANDA FORDI" 
+                        class="block w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 placeholder-slate-400 focus:ring-4 focus:ring-blue-100 focus:border-blue-500 transition-all outline-none">
+                </div>
+            </div>
+
+            <button id="fetchBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-2xl transition-all active:scale-[0.98] shadow-lg shadow-blue-200 flex justify-center items-center gap-3">
+                <span>Send to Server</span>
+                <i class="fas fa-arrow-right text-sm"></i>
+            </button>
+
+            <div class="relative my-8">
+                <div class="absolute inset-0 flex items-center"><span class="w-full border-t border-slate-100"></span></div>
+                <div class="relative flex justify-center text-xs uppercase"><span class="bg-white px-3 text-slate-400">API Response</span></div>
+            </div>
+
+            <div id="statusIndicator" class="hidden mb-3 flex items-center justify-center gap-2 text-[11px] font-bold uppercase tracking-tighter">
+                <span id="dot" class="h-2 w-2 rounded-full"></span>
+                <span id="statusText">...</span>
+            </div>
+            
+            <div id="resultBox" class="min-h-[100px] bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl flex flex-col items-center justify-center p-6 text-center transition-all duration-300">
+                <p id="messageDisplay" class="text-slate-400 italic text-sm">Enter a name and submit</p>
+            </div>
+        </div>
+
+        <div class="px-8 py-4 bg-slate-50/50 border-t border-slate-100 flex justify-between items-center">
+            <span class="text-[10px] text-slate-400 font-bold uppercase tracking-widest">FomaDev Lab</span>
+            <div class="flex gap-2">
+                <div class="w-2 h-2 rounded-full bg-slate-200"></div>
+                <div class="w-2 h-2 rounded-full bg-slate-300"></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
