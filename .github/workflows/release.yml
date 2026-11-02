@@ -1,0 +1,246 @@
+name: Release
+
+# Pushing a tag such as v2.0.0 builds, tests and packages every platform, then publishes a GitHub
+# release with generated notes, checksums and build provenance. Run it manually (workflow_dispatch)
+# to rehearse a release: everything is built and the notes are previewed, but nothing is published.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Version to rehearse, e.g. v2.0.0 (dry run, nothing is published)
+        required: true
+        default: v2.0.0
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      publish: ${{ steps.meta.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: meta
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            tag="$GITHUB_REF_NAME"; publish=true
+          else
+            tag="$INPUT_TAG"; publish=false
+          fi
+          if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$tag' is not a valid version tag (expected vMAJOR.MINOR.PATCH[-pre])"
+            exit 1
+          fi
+          version="${tag#v}"
+          header=$(sed -n 's/^#define NYXJ_VERSION "\(.*\)"/\1/p' include/nyxj.h)
+          if [ "$header" != "$version" ]; then
+            msg="Tag $tag does not match NYXJ_VERSION \"$header\" in include/nyxj.h"
+            if [ "$publish" = true ]; then echo "::error::$msg"; exit 1; fi
+            echo "::warning::$msg"
+          fi
+          if ! grep -q "^## \[$version\]" CHANGELOG.md; then
+            echo "::warning::CHANGELOG.md has no [$version] section: the notes will be built from commits only"
+          fi
+          prerelease=false
+          case "$version" in *-*) prerelease=true ;; esac
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "prerelease=$prerelease"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+          echo "### NyxJ $version" >> "$GITHUB_STEP_SUMMARY"
+          echo "Mode: $([ "$publish" = true ] && echo 'publish' || echo 'dry run (preview only)'), pre-release: $prerelease" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build (${{ matrix.platform }})
+    needs: prepare
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux-x64
+            os: ubuntu-22.04 # Older glibc: binaries run on more distributions
+            shell: bash
+          - platform: linux-arm64
+            os: ubuntu-22.04-arm
+            shell: bash
+          - platform: macos-arm64
+            os: macos-latest
+            shell: bash
+          - platform: windows-x64
+            os: windows-latest
+            shell: msys2 {0}
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '11.0'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSYS2
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          install: make curl zip mingw-w64-ucrt-x86_64-gcc
+
+      - name: Build
+        run: make -j4 all
+
+      - name: Test
+        run: make test
+
+      - name: Smoke test
+        run: bash tests/smoke.sh build
+
+      - name: Package
+        run: |
+          make dist PLATFORM=${{ matrix.platform }}
+          cd dist
+          for dir in nyxj-*/; do
+            dir="${dir%/}"
+            if [ "${{ runner.os }}" = "Windows" ]; then
+              zip -qr "$dir.zip" "$dir"
+            else
+              tar -czf "$dir.tar.gz" "$dir"
+            fi
+            rm -rf "$dir"
+          done
+          ls -l
+
+      - name: Export the OpenAPI document
+        if: matrix.platform == 'linux-x64'
+        run: |
+          ./build/nyxj-server --port 18999 --no-access-log --log-level warn &
+          pid=$!
+          for _ in $(seq 1 50); do curl -sf http://127.0.0.1:18999/health >/dev/null && break; sleep 0.1; done
+          curl -sf http://127.0.0.1:18999/openapi.json -o "dist/nyxj-${{ needs.prepare.outputs.version }}-openapi.json"
+          kill $pid
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.platform }}
+          path: dist/*
+          if-no-files-found: error
+
+  wasm:
+    name: Build (wasm)
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mymindstorm/setup-emsdk@v14
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build and test
+        run: |
+          make wasm
+          node examples/wasm/smoke.cjs
+
+      - name: Package
+        run: |
+          name="nyxj-${{ needs.prepare.outputs.version }}-wasm"
+          mkdir -p "dist/$name"
+          cp build/wasm/nyxj.js build/wasm/nyxj.wasm README.md LICENSE "dist/$name/"
+          sed 's#\.\./\.\./build/wasm/nyxj\.js#nyxj.js#' examples/wasm/index.html > "dist/$name/index.html"
+          tar -czf "dist/$name.tar.gz" -C dist "$name"
+          rm -rf "dist/$name"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-wasm
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: ${{ needs.prepare.outputs.publish == 'true' && 'Publish release' || 'Preview release' }}
+    needs: [prepare, build, wasm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      PRERELEASE: ${{ needs.prepare.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Generate release notes
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          node .github/scripts/release-notes.mjs --tag "$TAG" --assets dist --out release-notes.md
+          cat release-notes.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Attest build provenance
+        if: needs.prepare.outputs.publish == 'true'
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
+
+      - name: Publish GitHub release
+        if: needs.prepare.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$PRERELEASE" = true ]; then kind=--prerelease; else kind=--latest; fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --title "NyxJ $VERSION" --notes-file release-notes.md "$kind"
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --title "NyxJ $VERSION" --notes-file release-notes.md --verify-tag "$kind"
+          fi
+          echo "Published $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the release preview
+        if: needs.prepare.outputs.publish != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-preview-${{ needs.prepare.outputs.version }}
+          path: |
+            release-notes.md
+            dist/*
