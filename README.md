@@ -7,7 +7,7 @@ systems, system tools, edge computing and high-concurrency services: one static 
 dependencies, native builds for Linux, macOS and Windows, and a WebAssembly build of the core.
 
 [![CI](https://github.com/fomadev/nyxj/actions/workflows/ci.yml/badge.svg)](https://github.com/fomadev/nyxj/actions/workflows/ci.yml)
-![C11](https://img.shields.io/badge/C-C11-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green)
+![C11](https://img.shields.io/badge/C-C11-blue) ![License: FPL v1.0](https://img.shields.io/badge/license-FPL%20v1.0-orange)
 
 ## Highlights
 
@@ -146,16 +146,27 @@ Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). Commits follo
 ## Support
 
 Need a specific integration, a port to a new board or professional support? Open an issue or contact
-FomaDev through the GitHub repository.
+FomaDev, a Fordima Inc. company, through the GitHub repository.
 
 ## License
 
-The NyxJ sources are released under the MIT license, see [LICENSE](LICENSE).
+The NyxJ sources are released under the **Fordima Public License (FPL) v1.0**, see [LICENSE](LICENSE).
+
+- **Free use**: free for individuals, education and companies, including embedding NyxJ in commercial
+  products and revenue-generating projects.
+- **Contributions**: pull requests are welcome via the official repository.
+- **Restrictions**: using this source code to build a similar or competing engine, redistributing it as a
+  standalone product, or offering a paid hosted version based on it requires a paid commercial license from
+  Fordima Inc. For commercial licensing, please contact the management of Fordima Inc.
+
+Versions of NyxJ before X.Y.Z were released under the MIT license and remain available under those terms.
 
 The networking layer (`vendor/mongoose`) is [Mongoose](https://github.com/cesanta/mongoose) by Cesanta,
 dual-licensed under GPL-2.0-only or a commercial license. Binaries that include it (`nyxj-server`, the
 HTTP parts of `libnyxj.a`) are subject to those terms. The core engine and the WebAssembly build do not
 use Mongoose.
+
+Copyright (c) 2026 Fordima Inc. All rights reserved.
 
 ## Contributors
 
