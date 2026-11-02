@@ -1,7 +1,15 @@
 # Contributing to NyxJ Engine
 
-Thank you for considering a contribution to NyxJ. As a project managed by FomaDev, we value professional,
+Thank you for considering a contribution to NyxJ. As a project managed by FomaDev, a Fordima Inc. company, we value professional,
 well-tested contributions that keep the engine fast and reliable.
+
+## License Agreement
+
+By contributing to this repository, you agree that your contributions will be licensed under the
+**Fordima Public License (FPL) v1.0**, and that Fordima Inc. may integrate them into the official project.
+Forks are authorized only for the purpose of contributing back through a pull request; independent or
+permanent forks created to bypass the official project are not permitted. See [LICENSE](LICENSE) for the
+full terms.
 
 ## Code of Conduct
 
