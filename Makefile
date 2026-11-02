@@ -20,6 +20,7 @@ ifeq ($(OS),Windows_NT)
   EXE = .exe
   SO = .dll
   LIBS = -lws2_32 -lpsapi
+  LDFLAGS += -static
   PIC =
   PLATFORM ?= windows-x64
 else

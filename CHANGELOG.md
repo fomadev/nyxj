@@ -66,6 +66,10 @@ a dozen data modules, a web framework with operations tooling, and a WebAssembly
 - WebAssembly build of the core (`make wasm`) with a browser demo and Node.js smoke test.
 - Test suite (500+ checks) covering every module plus a live client/server integration test and an
   end-to-end smoke script; CI on Linux x64/ARM64, macOS, Windows, sanitizers and WebAssembly.
+- Release pipeline: a `v*` tag builds and tests Linux x64/ARM64, macOS, Windows and WebAssembly, then
+  publishes a GitHub release with generated notes (changelog highlights, grouped commits, pull requests,
+  contributors), archives, the OpenAPI document, SHA-256 checksums and build provenance. A manual run
+  rehearses the release without publishing.
 - Examples: struct mapping, streaming sensor feed, plugin, browser demo; README, API and server guides,
   ROADMAP.
 
