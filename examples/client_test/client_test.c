@@ -1,59 +1,41 @@
-#ifdef _WIN32
-  #define _CRT_SECURE_NO_WARNINGS
-#else
-  #define _GNU_SOURCE
-#endif
-
-#include "../../vendor/mongoose/mongoose.h"
+/*
+ * HTTP client example: builds a JSON message with the builder API and posts
+ * it to the FastAPI service in main.py (uvicorn main:app --port 8000).
+ */
 #include "../../include/nyxj.h"
+#include "../../include/nyxj_http.h"
+
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
+int main(int argc, char** argv) {
+    const char* base = argc > 1 ? argv[1] : "http://localhost:8000";
+    char url[256];
 
-static void fn(struct mg_connection *c, int ev, void *ev_data) {
-  if (ev == MG_EV_CONNECT) {
-    // 1. Message created with NyxJ
-    nyxj_value* root = malloc(sizeof(nyxj_value));
-    root->type = NYXJ_OBJECT;
-    
-    nyxj_pair* p = malloc(sizeof(nyxj_pair));
-    p->key = strdup("texte");
-    
-    nyxj_value* val = malloc(sizeof(nyxj_value));
-    val->type = NYXJ_STRING;
-    val->as.string = strdup("Hello from NyxJ v1.0.0!");
-    
-    p->value = val;
-    p->next = NULL;
-    root->as.object.pairs = p;
-    root->as.object.count = 1;
+    /* 1. Message created with the NyxJ builder API */
+    nyxj_value* msg = nyxj_new_object();
+    nyxj_object_set_string(msg, "texte", "Hello from NyxJ v" NYXJ_VERSION "!");
 
-    char* json_payload = nyxj_serialize(root);
+    /* 2. POST it with the native HTTP client */
+    snprintf(url, sizeof(url), "%s/envoyer", base);
+    nyxj_http_response resp;
+    nyxj_error err;
+    if (!nyxj_http_post_json(url, msg, 5000, &resp, &err)) {
+        fprintf(stderr, "Connection error: %s\n", err.message);
+        nyxj_free_value(msg);
+        return 1;
+    }
+    printf("Python server response (%d): %s\n", resp.status, resp.body);
+    nyxj_http_response_free(&resp);
 
-    // 2. Sending the HTTP POST request to FastAPI
-    mg_printf(c, "POST /envoyer HTTP/1.1\r\n"
-                 "Host: localhost:8000\r\n"
-                 "Content-Type: application/json\r\n"
-                 "Content-Length: %d\r\n\r\n"
-                 "%s", (int)strlen(json_payload), json_payload);
-
-    free(json_payload);
-    nyxj_free_value(root);
-  } else if (ev == MG_EV_HTTP_MSG) {
-    struct mg_http_message *hm = (struct mg_http_message *) ev_data;
-    printf("Python server response : %.*s\n", (int) hm->message.len, hm->message.buf);
-    c->is_closing = 1; // We close after the answer
-  } else if (ev == MG_EV_ERROR) {
-    printf("Connection error !\n");
-  }
-}
-
-int main() {
-  struct mg_mgr mgr;
-  mg_mgr_init(&mgr);
-  mg_http_connect(&mgr, "http://localhost:8000", fn, NULL);
-  for (;;) mg_mgr_poll(&mgr, 8080);
-  mg_mgr_free(&mgr);
-  return 0;
+    /* 3. Read the list back and walk it */
+    snprintf(url, sizeof(url), "%s/messages", base);
+    if (nyxj_http_get(url, 5000, &resp, &err)) {
+        nyxj_value* data = nyxj_http_response_json(&resp, &err);
+        nyxj_value* list = nyxj_get_member(data, "messages");
+        for (int i = 0; i < nyxj_size(list); i++) printf("  - %s\n", nyxj_array_get(list, i)->as.string);
+        nyxj_free_value(data);
+        nyxj_http_response_free(&resp);
+    }
+    nyxj_free_value(msg);
+    return 0;
 }

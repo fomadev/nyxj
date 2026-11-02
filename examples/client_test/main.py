@@ -25,4 +25,4 @@ async def lire_messages():
 @app.post("/envoyer")
 async def ajouter_message(msg: Message):
     base_de_donnees.append(msg.texte)
-    return {"status": "Added successfully", "new_message": msg.text}
+    return {"status": "Added successfully", "new_message": msg.texte}
