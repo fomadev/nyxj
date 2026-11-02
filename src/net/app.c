@@ -369,6 +369,15 @@ static void drain_done(nyxj_app* app, bool send) {
 
 /* --- Request dispatch --- */
 
+/* Copies a Mongoose string (whose buffer may be NULL when empty) and NUL-terminates it. */
+static const char* copy_mg_str(char** cursor, struct mg_str v) {
+    char* dst = *cursor;
+    if (v.len) memcpy(dst, v.buf, v.len);
+    dst[v.len] = '\0';
+    *cursor = dst + v.len + 1;
+    return dst;
+}
+
 static bool build_request(nyxj_app* app, struct mg_connection* c, struct mg_http_message* hm, nyxj_request* req) {
     memset(req, 0, sizeof(*req));
     req->app = app;
@@ -383,38 +392,21 @@ static bool build_request(nyxj_app* app, struct mg_connection* c, struct mg_http
     if (!s) return false;
     req->storage_ = s;
 
-    memcpy(s, hm->method.buf, hm->method.len);
-    s[hm->method.len] = '\0';
-    req->method = s;
-    s += hm->method.len + 1;
+    req->method = copy_mg_str(&s, hm->method);
 
-    int n = mg_url_decode(hm->uri.buf, hm->uri.len, s, hm->uri.len + 1, 0);
+    int n = hm->uri.len ? mg_url_decode(hm->uri.buf, hm->uri.len, s, hm->uri.len + 1, 0) : 0;
     if (n < 0) { memcpy(s, hm->uri.buf, hm->uri.len); n = (int)hm->uri.len; }
     s[n] = '\0';
     req->path = s;
     s += hm->uri.len + 1;
 
-    memcpy(s, hm->query.buf, hm->query.len);
-    s[hm->query.len] = '\0';
-    req->query = s;
-    s += hm->query.len + 1;
-
-    memcpy(s, hm->body.buf, hm->body.len);
-    s[hm->body.len] = '\0';
-    req->body = s;
+    req->query = copy_mg_str(&s, hm->query);
+    req->body = copy_mg_str(&s, hm->body);
     req->body_len = hm->body.len;
-    s += hm->body.len + 1;
 
     for (int i = 0; i < nh; i++) {
-        struct mg_http_header* h = &hm->headers[i];
-        memcpy(s, h->name.buf, h->name.len);
-        s[h->name.len] = '\0';
-        req->headers[i].name = s;
-        s += h->name.len + 1;
-        memcpy(s, h->value.buf, h->value.len);
-        s[h->value.len] = '\0';
-        req->headers[i].value = s;
-        s += h->value.len + 1;
+        req->headers[i].name = copy_mg_str(&s, hm->headers[i].name);
+        req->headers[i].value = copy_mg_str(&s, hm->headers[i].value);
     }
     req->header_count = nh;
     mg_snprintf(s, 64, "%M", mg_print_ip, &c->rem);

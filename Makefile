@@ -41,14 +41,18 @@ OPT ?= -O2
 WARN = -Wall -Wextra
 CFLAGS_BASE = -std=gnu11 $(OPT) $(PIC) -Iinclude -Ivendor/mongoose $(DEFS)
 
+# Sanitizers: UBSan covers NyxJ sources; the vendored Mongoose code only gets ASan.
+SAN_FLAGS =
+VENDOR_SAN_FLAGS =
 ifeq ($(SAN),1)
   OPT = -O1 -g -fno-omit-frame-pointer
-  CFLAGS_BASE += -fsanitize=address,undefined
+  SAN_FLAGS = -fsanitize=address,undefined -fno-sanitize-recover=undefined
+  VENDOR_SAN_FLAGS = -fsanitize=address
   LDFLAGS += -fsanitize=address,undefined
 endif
 
 CFLAGS ?=
-ALL_CFLAGS = $(CFLAGS_BASE) $(WARN) $(CFLAGS)
+ALL_CFLAGS = $(CFLAGS_BASE) $(SAN_FLAGS) $(WARN) $(CFLAGS)
 
 BUILD = build
 OBJ = $(BUILD)/obj
@@ -86,7 +90,7 @@ version:
 
 $(OBJ)/vendor/mongoose/mongoose.o: $(VENDOR_SRC) vendor/mongoose/mongoose.h
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS_BASE) -w $(CFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS_BASE) $(VENDOR_SAN_FLAGS) -w $(CFLAGS) -c $< -o $@
 
 $(OBJ)/%.o: %.c $(HEADERS)
 	@mkdir -p $(dir $@)

@@ -47,14 +47,14 @@ EXPORT void nyxj_wasm_free(void* p) { free(p); }
 EXPORT char* nyxj_wasm_format(const char* json, int indent) {
     nyxj_result r = nyxj_parse(json);
     if (!r.is_valid) return envelope(NULL, &r.error);
-    char* text = nyxj_serialize_pretty(r.root, indent);
+    char* text = indent > 0 ? nyxj_serialize_pretty(r.root, indent) : nyxj_serialize(r.root);
     nyxj_free_value(r.root);
     nyxj_value* s = nyxj_new_string(text ? text : "");
     free(text);
     return envelope(s, NULL);
 }
 
-EXPORT char* nyxj_wasm_minify(const char* json) { return nyxj_wasm_format(json, 0) ; }
+EXPORT char* nyxj_wasm_minify(const char* json) { return nyxj_wasm_format(json, 0); }
 
 EXPORT char* nyxj_wasm_validate(const char* json) {
     nyxj_result r = nyxj_parse(json);

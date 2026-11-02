@@ -55,7 +55,7 @@ void* nyxj_arena_alloc(nyxj_arena* a, size_t size) {
 char* nyxj_arena_strndup(nyxj_arena* a, const char* s, size_t len) {
     char* d = nyxj_arena_alloc(a, len + 1);
     if (!d) return NULL;
-    memcpy(d, s, len);
+    if (len) memcpy(d, s, len);
     d[len] = '\0';
     return d;
 }

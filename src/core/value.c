@@ -8,7 +8,7 @@
 char* nyxj_strndup(const char* s, size_t len) {
     char* d = malloc(len + 1);
     if (!d) return NULL;
-    memcpy(d, s, len);
+    if (len) memcpy(d, s, len); /* s may be NULL when len is 0 */
     d[len] = '\0';
     return d;
 }
@@ -339,7 +339,10 @@ nyxj_value* nyxj_get_path(const nyxj_value* root, const char* path) {
             if (*p == '-') { neg = true; p++; }
             if (*p < '0' || *p > '9') return NULL;
             long idx = 0;
-            while (*p >= '0' && *p <= '9') idx = idx * 10 + (*p++ - '0');
+            while (*p >= '0' && *p <= '9') {
+                idx = idx * 10 + (*p++ - '0');
+                if (idx > 0x7FFFFFFF) return NULL;
+            }
             if (*p != ']') return NULL;
             p++;
             cur = nyxj_array_get(cur, neg ? (int)-idx : (int)idx);
