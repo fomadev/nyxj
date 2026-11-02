@@ -1,0 +1,4 @@
+# Shell scripts and make files must keep LF endings on every platform
+*.sh text eol=lf
+Makefile text eol=lf
+*.yml text eol=lf

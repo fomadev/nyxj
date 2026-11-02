@@ -1,118 +1,162 @@
 # NyxJ Engine
 
-NyxJ is a high-performance, lightweight JSON processing engine and micro-service framework written in pure C. Designed for embedded systems, system-level tools, and high-concurrency micro-services, NyxJ provides a robust bridge between low-level system operations and high-level web interfaces.
+> *NyxJ is not just a parser: it is an architecture for silence and speed in a world saturated with data.*
 
-## Core Features
+NyxJ is a high-performance JSON engine and micro-service framework written in pure C. It targets embedded
+systems, system tools, edge computing and high-concurrency services: one static library, no runtime
+dependencies, native builds for Linux, macOS and Windows, and a WebAssembly build of the core.
 
-* **Efficient JSON Parsing:** Specialized tree-based parsing for structured data extraction.
-* **Zero-Dependency Core:** The core engine is written in standard C for maximum portability.
-* **Multi-Platform Support:** Native compilation for Windows (x64), Linux (x86_64, ARM64), and macOS (Apple Silicon).
-* **Integrated Micro-service Layer:** Powered by the Mongoose networking library to provide high-speed HTTP API capabilities.
-* **Memory Safety:** Strict allocation management and error handling to prevent leaks and segmentation faults.
+[![CI](https://github.com/fomadev/nyxj/actions/workflows/ci.yml/badge.svg)](https://github.com/fomadev/nyxj/actions/workflows/ci.yml)
+![C11](https://img.shields.io/badge/C-C11-blue) ![License: MIT](https://img.shields.io/badge/license-MIT-green)
 
-## Project Structure
+## Highlights
 
-* `src/`: Core engine implementation and server logic.
-* `include/`: Public headers and API definitions.
-* `vendor/`: Third-party dependencies (Mongoose).
-* `examples/`: Implementation demonstrations including API services and client-side testing.
-* `tests/`: Unit and integration testing suites.
+| Area | What you get |
+|---|---|
+| **Parsing** | Thread-safe RFC 8259 parser, full escape/UTF-8 validation, SIMD scanning (SSE2 / NEON), line and column on every error |
+| **Security** | JSON DoS protection (depth, size, string and element limits), the Guardian sanitizer, Safe-Gate reverse proxy, HTTPS/TLS |
+| **Productivity** | Dot-path getters, builder API, JSON-to-struct mapping, C struct code generator, JSON Schema validation, JSONPath queries |
+| **Performance** | Zero-copy token view, constant-memory streaming (SAX) parser, arena allocator, worker thread pool, MessagePack |
+| **Data tools** | JSON Patch / Merge Patch diffing, heuristic repair of almost-JSON, structural checksums |
+| **Framework** | Express-style router with `:params`, middleware, async handlers, OpenAPI + Swagger UI generation, native HTTP client |
+| **Operations** | Prometheus metrics, health/readiness probes with scale hints, heartbeat, Eco-Throttle, structured logs |
+| **Platform** | Embedded key-value store with TTL and snapshots, plugins (.so/.dll), Unix sockets and shared memory IPC, gossip clustering |
+| **Reliability** | Shadow execution (double parse + compare), triple modular redundancy with majority vote |
 
-## Getting Started
+## Quick start
 
-### Prerequisites
+```bash
+git clone https://github.com/fomadev/nyxj.git
+cd nyxj
+make            # library, CLI, server, example plugin and examples
+make test       # unit + integration tests
+./build/nyxj-server --port 8000
+```
 
-* GCC or Clang compiler.
-* Make (optional, for automation).
-* Windows users: MinGW-w64 (via w64devkit) is recommended for POSIX compatibility.
+Then open `http://localhost:8000/docs` for the interactive API documentation.
 
-### Installation and Build
+Prerequisites: a C11 compiler (GCC or Clang) and GNU Make. On Windows use MinGW-w64
+([w64devkit](https://github.com/skeeto/w64devkit) or MSYS2 UCRT64).
 
-1. Clone the repository:
-    ```bash
-    git clone https://github.com/fomadev/nyxj.git
-    cd nyxj
-    ```
+## Use it as a library
 
-2. Compile the main server:
-    ```bash
-    make
-    ```
+```c
+#include "nyxj.h"
 
-3. Run the micro-service:
-    ```bash
-    ./nyxj_server
-    ```
-
-## API Documentation
-
-### HTTP Interface
-
-The NyxJ micro-service listens on port 8000 by default.
-
-**Endpoint**: `POST /api/data`
-
-**Content-Type**: `application/json`
-
-**Example Request**:
-```json
-{
-    "status": "request",
-    "payload": "NyxJ Engine Test"
+nyxj_result r = nyxj_parse("{\"user\": {\"name\": \"Ada\", \"langs\": [\"c\", \"go\"]}}");
+if (!r.is_valid) {
+    printf("error: %s\n", r.error.message);   /* "... at line 1, column 12" */
+} else {
+    printf("%s\n", nyxj_path_string(r.root, "user.name", "?"));      /* Ada */
+    printf("%s\n", nyxj_path_string(r.root, "user.langs[1]", "?"));  /* go  */
+    nyxj_free_value(r.root);
 }
 ```
 
-**Example Response**:
-```json
-{
-    "status": "success",
-    "engine": "NyxJ v1.0.0",
-    "message": "Data processed successfully"
+A complete micro-service in a few lines:
+
+```c
+#include "nyxj_http.h"
+
+static void get_user(nyxj_request* req, nyxj_response* res) {
+    nyxj_value* o = nyxj_new_object();
+    nyxj_object_set_string(o, "id", nyxj_req_param(req, "id"));
+    nyxj_res_json(res, 200, o);
+}
+
+int main(void) {
+    nyxj_app* app = nyxj_app_create(NULL);           /* :8000, CORS, metrics, docs, health */
+    nyxj_app_get(app, "/api/user/:id", get_user, NULL);
+    return nyxj_app_run(app);
 }
 ```
 
-## Cross-Platform Compilation
+Link with `build/libnyxj.a` and the platform libraries (`-lpthread -lm -ldl -lrt` on Linux,
+`-lws2_32 -lpsapi` on Windows). See [docs/API.md](docs/API.md) for every module.
 
-NyxJ is designed to be compiled across various environments.
-
-### Linux (x86_64 / ARM64)
-
-```bash
-gcc src/server.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o nyxj_server -lpthread
-```
-
-### Windows (MinGW)
+## Command-line toolbox
 
 ```bash
-gcc src/server.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o nyxj_server.exe -lws2_32
+nyxj validate data.json                       # syntax check with line/column
+nyxj format --indent 4 data.json              # pretty-print (minify for the opposite)
+nyxj query '$..book[?(@.price < 10)].title' store.json
+nyxj repair broken.json                       # comments, quotes, commas, unclosed brackets...
+nyxj schema schema.json data.json             # JSON Schema validation
+nyxj diff old.json new.json                   # RFC 6902 JSON Patch (--merge for RFC 7386)
+nyxj gen-struct --name Order sample.json      # C structs + mapping tables
+nyxj msgpack encode data.json -o data.mp      # binary serialization
+nyxj stream huge.ndjson                       # constant-memory statistics
+nyxj bench data.json                          # throughput of every engine mode
 ```
 
-### macOS (Apple Silicon)
+## The server
+
+`nyxj-server` exposes the engine over HTTP(S): `/api/data`, `/api/validate`, `/api/query`, `/api/repair`,
+`/api/diff`, `/api/patch`, `/api/msgpack/*`, the key-value store under `/api/kv`, plus `/health`, `/ready`,
+`/metrics`, `/openapi.json` and `/docs`. It also runs as a **Safe-Gate** JSON firewall in front of another
+service, loads plugins, and joins a gossip cluster.
 
 ```bash
-gcc src/server.c src/core/parser.c vendor/mongoose/mongoose.c -Iinclude -Ivendor/mongoose -o nyxj_server
+nyxj-server --port 8443 --tls-cert cert.pem --tls-key key.pem --threads 8
+nyxj-server --gate-upstream http://127.0.0.1:3000          # protect a Node.js/Python back-end
+nyxj-server --plugin build/plugins/hello_plugin.so
+nyxj-server --cluster-bind udp://0.0.0.0:7946 --seed udp://10.0.0.2:7946
 ```
 
-## Development and Contributions
+All options, endpoints and the JSON configuration file are documented in [docs/SERVER.md](docs/SERVER.md).
 
-NyxJ is maintained by FomaDev. Contributions related to performance optimization, new JSON serialization methods, or additional networking protocols are welcome.
+## Project structure
 
-1. Fork the repository.
+```
+include/          Public headers (nyxj.h + one header per module)
+src/core/         Parser, values, serializer, errors, logging, arena
+src/modules/      Schema, query, patch, msgpack, view, SAX, repair, gate, mapping, reliability
+src/runtime/      Thread pool, key-value store, metrics, IPC
+src/net/          Router/server, HTTP client, Safe-Gate proxy, plugins, cluster
+src/server/       nyxj-server
+src/cli/          nyxj command-line tool
+src/wasm/         WebAssembly bindings
+tests/            Test suite and end-to-end smoke test
+examples/         API service, HTTP client, struct mapping, streaming, plugin, browser (WASM)
+vendor/mongoose/  Networking layer (Mongoose)
+```
 
-2. Create a feature branch (`git checkout -b feature/Optimization`).
+## Building
 
-3. Commit your changes (`git commit -m 'Add performance fix'`).
+| Command | Result |
+|---|---|
+| `make` | `build/libnyxj.a`, `build/nyxj`, `build/nyxj-server`, plugin and examples |
+| `make test` | Runs the test suite |
+| `make SAN=1 test` | Tests under AddressSanitizer and UndefinedBehaviorSanitizer |
+| `make wasm` | `build/wasm/nyxj.js` + `nyxj.wasm` (requires Emscripten) |
+| `make dist PLATFORM=linux-x64` | Release layout in `dist/` |
+| `make CC=aarch64-linux-gnu-gcc AR=aarch64-linux-gnu-ar` | Cross-compilation |
+| `make install PREFIX=/usr/local` | Installs binaries, library and headers |
 
-4. Push to the branch (`git push origin feature/Optimization`).
+## Roadmap
 
-5. Open a Pull Request.
+NyxJ 2.0.0 delivers the bulk of the original roadmap. What comes next, from scripting to post-quantum
+TLS, is tracked in [ROADMAP.md](ROADMAP.md). Changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
-<a href="CONTRIBUTING.md">CONTRIBUTING.md</a>
+## Contributing
+
+Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md). Commits follow
+[Conventional Commits](https://www.conventionalcommits.org/), which feeds the automated release notes.
+
+## Support
+
+Need a specific integration, a port to a new board or professional support? Open an issue or contact
+FomaDev through the GitHub repository.
 
 ## License
 
-This project is licensed under the MIT <a href="LICENSE">License</a> - see the LICENSE file for details.
+The NyxJ sources are released under the MIT license, see [LICENSE](LICENSE).
+
+The networking layer (`vendor/mongoose`) is [Mongoose](https://github.com/cesanta/mongoose) by Cesanta,
+dual-licensed under GPL-2.0-only or a commercial license. Binaries that include it (`nyxj-server`, the
+HTTP parts of `libnyxj.a`) are subject to those terms. The core engine and the WebAssembly build do not
+use Mongoose.
 
 ## Contributors
 
-@fordimalanda
+[@fordimalanda](https://github.com/fordimalanda)

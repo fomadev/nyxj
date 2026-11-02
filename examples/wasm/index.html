@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NyxJ in the browser</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; padding: 0 1rem; color: #1b1b1f; }
+    textarea, input { width: 100%; font-family: ui-monospace, monospace; font-size: 13px; box-sizing: border-box; }
+    textarea { height: 160px; }
+    button { margin: .5rem .5rem .5rem 0; padding: .4rem .9rem; }
+    pre { background: #f4f4f6; padding: 1rem; overflow: auto; min-height: 3rem; }
+  </style>
+</head>
+<body>
+  <h1>NyxJ <span id="version"></span> &mdash; WebAssembly</h1>
+  <p>The pure-C engine compiled with Emscripten. Build it with <code>make wasm</code>, then serve the repository root
+     (for example <code>python -m http.server</code>) and open <code>/examples/wasm/</code>.</p>
+  <textarea id="input">{name: 'NyxJ', tags: ['fast' 'small',], price: 10, active: True}</textarea>
+  <input id="query" value="$.tags[*]">
+  <div>
+    <button data-op="repair">Repair</button>
+    <button data-op="format">Format</button>
+    <button data-op="validate">Validate</button>
+    <button data-op="query">Query</button>
+  </div>
+  <pre id="output"></pre>
+  <script src="../../build/wasm/nyxj.js"></script>
+  <script>
+    NyxJ().then((m) => {
+      const call = (name, ...args) => {
+        const ptr = m.ccall(name, 'number', args.map((a) => typeof a === 'number' ? 'number' : 'string'), args);
+        const text = m.UTF8ToString(ptr);
+        m._nyxj_wasm_free(ptr);
+        return JSON.parse(text);
+      };
+      document.getElementById('version').textContent = m.UTF8ToString(m.ccall('nyxj_wasm_version', 'number', [], []));
+      const input = document.getElementById('input');
+      const out = document.getElementById('output');
+      document.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+        const op = b.dataset.op;
+        let r;
+        if (op === 'repair') r = call('nyxj_wasm_repair', input.value);
+        else if (op === 'format') r = call('nyxj_wasm_format', input.value, 2);
+        else if (op === 'validate') r = call('nyxj_wasm_validate', input.value);
+        else r = call('nyxj_wasm_query', input.value, document.getElementById('query').value);
+        if (op === 'repair' && r.ok) input.value = r.result.json;
+        out.textContent = JSON.stringify(r, null, 2);
+      }));
+    });
+  </script>
+</body>
+</html>

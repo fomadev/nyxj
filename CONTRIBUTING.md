@@ -1,36 +1,66 @@
 # Contributing to NyxJ Engine
 
-First of all, thank you for considering contributing to NyxJ. As a project managed by FomaDev, we value professional and high-quality contributions to improve the efficiency and reliability of our JSON engine.
+Thank you for considering a contribution to NyxJ. As a project managed by FomaDev, we value professional,
+well-tested contributions that keep the engine fast and reliable.
 
 ## Code of Conduct
 
-By participating in this project, you are expected to maintain a professional demeanor and respect the technical decisions made by the core maintainers.
+Be respectful and constructive. Technical disagreements are settled with data: tests, benchmarks and
+references.
 
 ## How Can I Contribute?
 
-### Reporting Bugs
-* Ensure the bug was not already reported by searching on GitHub under Issues.
-* If you're unable to find an open issue addressing the problem, open a new one.
-* Include a clear title and a detailed description, including relevant information to reproduce the bug.
+### Reporting bugs
+* Search the existing issues first.
+* Include the NyxJ version (`nyxj version`), your platform, a minimal input that reproduces the problem
+  and the exact error (code, line and column).
 
-### Suggesting Enhancements
-* Open a GitHub Issue to discuss the proposed enhancement.
-* Provide a clear use case and explain why this enhancement would benefit the project.
+### Suggesting enhancements
+* Open an issue describing the use case. Check [ROADMAP.md](ROADMAP.md) for planned work.
 
-### Pull Requests
-1. Fork the repository and create your branch from `main`.
-2. If you've added code that should be tested, add tests.
-3. Ensure the code compiles on at least two of the supported platforms (Linux, Windows, macOS).
-4. Follow the existing C coding style (consistent indentation, clear variable naming, and comprehensive comments).
-5. Issue a Pull Request (PR) with a detailed description of your changes.
+### Pull requests
+1. Fork the repository and create a branch from `main`.
+2. Add or update tests in `tests/` for every behavior change.
+3. Run `make test` (and `make SAN=1 test` on Linux or macOS when you touch memory handling).
+4. Update the documentation (`README.md`, `docs/`, header comments) and add an entry under
+   `## [Unreleased]` or the upcoming version in `CHANGELOG.md`.
+5. Open the pull request: CI must pass on Linux, macOS, Windows, sanitizers and WebAssembly.
 
-## Coding Standards
+## Commit messages
 
-* **C Standard:** All code must adhere to the C99 or C11 standard for maximum portability.
-* **Memory Management:** Every allocation (`malloc`, `calloc`) must be checked for NULL and properly freed.
-* **Networking:** Any changes to the networking layer must maintain compatibility with the Mongoose library.
-* **Documentation:** Update `README.md` and header files if you introduce new functions or modify existing APIs.
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/). The release pipeline groups
+them in the release notes, so the type matters:
+
+| Type | Use for | Release notes section |
+|---|---|---|
+| `feat` | A new feature | New features |
+| `fix` | A bug fix | Bug fixes |
+| `perf` | A performance improvement | Performance |
+| `refactor` | Code change without behavior change | Refactoring |
+| `docs` | Documentation | Documentation |
+| `test` | Tests | Tests |
+| `build`, `ci` | Build system and pipelines | Build and CI |
+| `chore`, `style` | Maintenance | Maintenance |
+
+Add `!` after the type (`feat!: ...`) or a `BREAKING CHANGE:` footer for incompatible changes.
+
+## Coding standards
+
+* **C standard:** C11 (GNU dialect allowed for POSIX functions), no compiler-specific extensions in public
+  headers.
+* **Memory:** check every allocation, free everything on error paths, document ownership in headers
+  ("takes ownership", "caller frees").
+* **Thread safety:** no hidden global state in the core; runtime modules protect shared state.
+* **Portability:** code must build on Linux, macOS and Windows (MinGW-w64); keep the core free of
+  networking so it still compiles to WebAssembly.
+* **Style:** 4-space indentation, `snake_case`, the `nyxj_` prefix for public symbols, short comments that
+  explain why.
+
+## Releases
+
+Maintainers release by pushing a `vX.Y.Z` tag that matches `NYXJ_VERSION` in `include/nyxj.h`. The
+pipeline builds every platform, runs the tests, and publishes a GitHub release with notes and assets.
 
 ## Contact
 
-For further inquiries, please contact the FomaDev team via the official GitHub repository.
+Open an issue or reach the FomaDev team through the GitHub repository.

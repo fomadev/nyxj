@@ -42,3 +42,10 @@ obj/
 *.gcda
 *.gcno
 *.gcov
+
+# === NyxJ build outputs ===
+dist/
+*.sock
+*.pem
+msgpack.bin
+nyxj_test_snapshot.json*
