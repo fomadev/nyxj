@@ -1,21 +1,66 @@
-MIT License
+Fordima Public License (FPL)
+Version 1.0
 
-Copyright (c) 2026 FomaDev
+Copyright (c) 2026 Fordima Inc. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This license protects the innovation behind NyxJ while encouraging open
+collaboration. The source code is public, free to use, and open to
+contributions.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. Free Use (Individuals, Education, and Companies)
+You may use, run, study, and integrate NyxJ, including its compiled versions,
+libraries, and WebAssembly builds, free of charge, for personal, educational,
+and commercial purposes. This includes use within a company, embedded inside
+commercial applications, products or services, and in projects that generate
+revenue. No fee, royalty, or registration is owed to Fordima for such use.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. Fork, Modify, and Contribute
+You may fork this repository, study the source code, and modify it. Forks are
+authorized for the purpose of contributing improvements, bug fixes, or new
+features back to the official project through a Pull Request to the original
+repository. By submitting a contribution, you agree that it is released under
+this same license and that Fordima Inc. may integrate it into the official
+project.
+
+3. Internal Integration
+You may incorporate portions of this source code into your own systems,
+applications, or internal tools, and use them in your business, provided that
+the result is not a product or service covered by Section 4.
+
+4. Restricted Use (Paid License Required)
+A paid commercial license from Fordima Inc. is MANDATORY if you use this
+source code, in whole or in part, to:
+  a) Create, publish, or distribute an engine, runtime, library, or tool that
+     is similar to, or competes with, NyxJ;
+  b) Build a derivative product or a replacement based on this source code,
+     whether open source or proprietary;
+  c) Keep a private copy of this code in order to produce the same
+     functionality or the same kind of product for your own commercial
+     offering;
+  d) Sell, redistribute, or sub-license the source code or a modified version
+     of it as a standalone product, or integrate it directly into another
+     commercial engine, runtime, or framework intended for sale;
+  e) Offer a paid hosted, cloud, or "as a service" offering based on the NyxJ
+     engine.
+
+5. Prohibition of Independent Forks
+Maintaining a separate, permanent fork of this project in order to bypass the
+authority of Fordima Inc., or to publish a competing package on any registry
+or marketplace, is strictly prohibited.
+
+6. Attribution
+You must keep this license and the copyright notice with any copy of the
+source code you use or redistribute.
+
+7. No Warranty
+This software is provided "as is", without warranty of any kind, express or
+implied. Fordima Inc. shall not be liable for any claim, damages, or other
+liability arising from the use of this software.
+
+8. Termination
+Any use in violation of Section 4 or Section 5 automatically terminates your
+rights under this license until a commercial license is obtained.
+
+9. Commercial Licensing
+To obtain a commercial license or negotiate an exploitation agreement, please
+contact the management of Fordima Inc.
