@@ -166,6 +166,7 @@ const PLATFORMS = [
   [/macos-x86_64|macos-x64/, 'macOS Intel'],
   [/windows-x64/, 'Windows x64'],
   [/wasm/, 'WebAssembly (browser, Node.js, edge)'],
+  [/openapi/, 'OpenAPI 3 document of nyxj-server'],
   [/SHA256SUMS/, 'Checksums'],
 ];
 
