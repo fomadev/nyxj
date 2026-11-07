@@ -165,7 +165,7 @@ jobs:
         run: |
           name="nyxj-${{ needs.prepare.outputs.version }}-wasm"
           mkdir -p "dist/$name"
-          cp build/wasm/nyxj.js build/wasm/nyxj.wasm README.md LICENSE "dist/$name/"
+          cp build/wasm/nyxj.js build/wasm/nyxj.wasm README.md DOCUMENTATION.md LICENSE "dist/$name/"
           sed 's#\.\./\.\./build/wasm/nyxj\.js#nyxj.js#' examples/wasm/index.html > "dist/$name/index.html"
           tar -czf "dist/$name.tar.gz" -C dist "$name"
           rm -rf "dist/$name"

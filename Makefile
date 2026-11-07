@@ -152,7 +152,7 @@ dist: all
 	cp $(LIB) $(DIST_DIR)/lib/
 	cp include/*.h $(DIST_DIR)/include/
 	cp $(PLUGIN) $(DIST_DIR)/plugins/
-	cp README.md LICENSE CHANGELOG.md $(DIST_DIR)/
+	cp README.md DOCUMENTATION.md LICENSE CHANGELOG.md $(DIST_DIR)/
 	@echo "Staged $(DIST_DIR)"
 
 install: lib cli server

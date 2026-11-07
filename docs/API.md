@@ -1,5 +1,8 @@
 # NyxJ API guide
 
+A quick reference of the C API. To learn NyxJ step by step, with explanations and complete programs, read
+the full guide: [DOCUMENTATION.md](../DOCUMENTATION.md).
+
 Every module has its own header in `include/`. The core header `nyxj.h` is all you need for parsing and
 building documents. Link with `build/libnyxj.a`.
 

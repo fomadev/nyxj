@@ -70,8 +70,10 @@ a dozen data modules, a web framework with operations tooling, and a WebAssembly
   publishes a GitHub release with generated notes (changelog highlights, grouped commits, pull requests,
   contributors), archives, the OpenAPI document, SHA-256 checksums and build provenance. A manual run
   rehearses the release without publishing.
-- Examples: struct mapping, streaming sensor feed, plugin, browser demo; README, API and server guides,
-  ROADMAP.
+- Examples: struct mapping, streaming sensor feed, plugin, browser demo.
+- `DOCUMENTATION.md`: a complete, beginner-friendly guide (36 chapters and appendices) that teaches
+  NyxJ from JSON basics and installation to production services, with compiled and tested examples;
+  API and server quick references in `docs/`, and the ROADMAP.
 
 ### Changed
 - The build now produces `build/libnyxj.a`, `build/nyxj`, `build/nyxj-server`, the example plugin and the
@@ -80,6 +82,7 @@ a dozen data modules, a web framework with operations tooling, and a WebAssembly
 - Error responses use one shape: `{"error": "<code>", "message": "...", "status": N}`.
 - Arrays now track their capacity: build values with the builder API rather than raw `malloc`.
 - The API and client examples use the router and the HTTP client.
+- The README is a short overview that points to the complete guide.
 
 ### Fixed
 - String escapes are decoded when parsing and escaped when serializing (they were copied verbatim).

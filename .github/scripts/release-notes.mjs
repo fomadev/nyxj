@@ -280,7 +280,7 @@ async function main() {
   out.push('');
   out.push('---');
   out.push(previous ? `**Full changelog:** [\`${previous}...${tag}\`](${repoUrl}/compare/${previous}...${tag})` : `**Full history:** ${repoUrl}/commits/${tag}`);
-  out.push(' · [Documentation](' + `${repoUrl}/blob/${tag}/docs/API.md` + ') · [Roadmap](' + `${repoUrl}/blob/${tag}/ROADMAP.md` + ')');
+  out.push(' · [Documentation](' + `${repoUrl}/blob/${tag}/DOCUMENTATION.md` + ') · [Roadmap](' + `${repoUrl}/blob/${tag}/ROADMAP.md` + ')');
 
   const md = out.join('\n') + '\n';
   if (args.out) writeFileSync(args.out, md);
