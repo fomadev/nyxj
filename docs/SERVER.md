@@ -1,5 +1,8 @@
 # nyxj-server guide
 
+A quick reference of `nyxj-server`. Chapter 31 of [DOCUMENTATION.md](../DOCUMENTATION.md) explains it in
+detail, with examples.
+
 `nyxj-server` exposes the NyxJ engine over HTTP(S). Every option can also be set in a JSON configuration
 file (comments and trailing commas allowed).
 
@@ -45,7 +48,7 @@ file (comments and trailing commas allowed).
 |---|---|---|
 | POST | `/api/data` | Parse and echo a document (1.x compatible) |
 | POST | `/api/format?indent=N&sort=1` | Pretty-print |
-| POST | `/api/validate` | `{"schema": ..., "data": ...}` → `{"valid", "errors"}` (422 when invalid) |
+| POST | `/api/validate` | `{"schema": ..., "data": ...}` → `{"valid", "error_count", "errors"}` (422 when invalid) |
 | POST | `/api/query` | `{"query": "$..x", "data": ...}` → `{"count", "matches"}` |
 | POST | `/api/repair` | Raw almost-JSON → `{"valid", "repaired", "report", "result"}` |
 | POST | `/api/diff?mode=merge` | `{"from", "to"}` → JSON Patch (or Merge Patch) |

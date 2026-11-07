@@ -30,7 +30,7 @@ references.
 1. Fork the repository and create a branch from `main`.
 2. Add or update tests in `tests/` for every behavior change.
 3. Run `make test` (and `make SAN=1 test` on Linux or macOS when you touch memory handling).
-4. Update the documentation (`README.md`, `docs/`, header comments) and add an entry under
+4. Update the documentation (`DOCUMENTATION.md`, `README.md`, `docs/`, header comments) and add an entry under
    `## [Unreleased]` or the upcoming version in `CHANGELOG.md`.
 5. Open the pull request: CI must pass on Linux, macOS, Windows, sanitizers and WebAssembly.
 
