@@ -103,6 +103,75 @@ static void test_kv(void) {
     nyxj_kv_destroy(kv);
 }
 
+static void test_kv_wal(void) {
+    const char* wal = "nyxj_test_wal.log";
+    const char* snap = "nyxj_test_snapshot.json.ckpt";
+    remove(wal);
+    remove(snap);
+    nyxj_error err;
+    nyxj_kv* kv = nyxj_kv_create(0);
+    CHECK(nyxj_kv_wal_open(kv, wal, false, &err));
+    CHECK(nyxj_kv_wal_replayed(kv) == 0);
+    nyxj_value* v = nyxj_new_string("ada");
+    CHECK(nyxj_kv_set(kv, "user", v, 0));
+    CHECK(nyxj_kv_set(kv, "gone", v, 0));
+    CHECK(nyxj_kv_set(kv, "short", v, 0));
+    nyxj_free_value(v);
+    double r;
+    CHECK(nyxj_kv_incr(kv, "hits", 2, &r) && nyxj_kv_incr(kv, "hits", 3, &r) && r == 5);
+    CHECK(nyxj_kv_del(kv, "gone"));
+    CHECK(nyxj_kv_expire(kv, "short", 1));
+    CHECK(nyxj_kv_expire(kv, "user", 60000));
+    nyxj_kv_destroy(kv); /* Simulated crash: no snapshot, only the log */
+    nyxj_sleep_ms(5);
+
+    /* Recovery: the log alone rebuilds the state. */
+    kv = nyxj_kv_create(0);
+    CHECK(nyxj_kv_wal_open(kv, wal, false, &err));
+    CHECK(nyxj_kv_wal_replayed(kv) == 8);
+    nyxj_value* got = nyxj_kv_get(kv, "hits");
+    CHECK(got && got->as.number == 5); /* Increments replay as values: no double counting */
+    nyxj_free_value(got);
+    got = nyxj_kv_get(kv, "user");
+    CHECK(got && !strcmp(got->as.string, "ada"));
+    nyxj_free_value(got);
+    CHECK(nyxj_kv_ttl(kv, "user") > 0);
+    CHECK(!nyxj_kv_exists(kv, "gone"));
+    CHECK(!nyxj_kv_exists(kv, "short")); /* Expired while "down" */
+    nyxj_kv_destroy(kv);
+
+    /* A torn last record (crash mid-write) is discarded, the rest survives. */
+    FILE* f = fopen(wal, "ab");
+    CHECK(f != NULL);
+    if (f) { fputs("{\"op\":\"set\",\"k\":\"tor", f); fclose(f); }
+    kv = nyxj_kv_create(0);
+    CHECK(nyxj_kv_wal_open(kv, wal, true, &err));
+    CHECK(nyxj_kv_wal_replayed(kv) == 8 && nyxj_kv_count(kv) == 2);
+    v = nyxj_new_bool(true);
+    CHECK(nyxj_kv_set(kv, "after", v, 0)); /* Appended on a clean line */
+    nyxj_free_value(v);
+
+    /* Checkpoint: snapshot + empty log; snapshot then log restores everything. */
+    CHECK(nyxj_kv_checkpoint(kv, snap, &err));
+    v = nyxj_new_number(7);
+    CHECK(nyxj_kv_set(kv, "late", v, 0));
+    nyxj_free_value(v);
+    nyxj_kv_destroy(kv);
+    kv = nyxj_kv_create(0);
+    CHECK(nyxj_kv_load(kv, snap, &err));
+    CHECK(nyxj_kv_wal_open(kv, wal, false, &err));
+    CHECK(nyxj_kv_wal_replayed(kv) == 1);
+    CHECK(nyxj_kv_exists(kv, "after") && nyxj_kv_exists(kv, "late") && nyxj_kv_exists(kv, "hits"));
+    nyxj_kv_clear(kv);
+    nyxj_kv_destroy(kv);
+    kv = nyxj_kv_create(0);
+    CHECK(nyxj_kv_load(kv, snap, &err) && nyxj_kv_wal_open(kv, wal, false, &err));
+    CHECK(nyxj_kv_count(kv) == 0); /* The logged clear wins over the snapshot */
+    nyxj_kv_destroy(kv);
+    remove(wal);
+    remove(snap);
+}
+
 /* --- Metrics --- */
 
 static void test_metrics(void) {
@@ -223,6 +292,7 @@ static void test_unix_socket(void) {
 void suite_runtime(void) {
     RUN(test_pool);
     RUN(test_kv);
+    RUN(test_kv_wal);
     RUN(test_metrics);
     RUN(test_shm);
     RUN(test_unix_socket);

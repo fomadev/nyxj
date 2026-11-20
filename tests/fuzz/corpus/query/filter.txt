@@ -1,0 +1,2 @@
+$..book[?(@.price < 10)].title
+{"store":{"book":[{"title":"A","price":8},{"title":"B","price":12}]}}

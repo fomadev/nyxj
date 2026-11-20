@@ -39,6 +39,8 @@ typedef struct {
     const char* seeds[MAX_SEEDS];
     int nseeds;
     const char* kv_snapshot;
+    const char* kv_wal;
+    bool kv_wal_sync;
     nyxj_value* config_doc; /* Keeps strings from --config alive */
 } server_options;
 
@@ -337,9 +339,16 @@ static void usage(void) {
            "  --log-json             Structured JSON logs\n"
            "  --no-access-log        Disable per-request logging\n"
            "  --no-cors              Disable CORS headers\n"
+           "  --rate-limit RPS       Requests per second per client (X-API-Key or IP), 0 = off\n"
+           "  --rate-burst N         Rate-limit bucket size (default 2 x RPS)\n"
+           "  --idle-timeout MS      Close idle keep-alive connections (default 60000, 0 = off)\n"
+           "  --no-security-headers  Do not send nosniff / X-Frame-Options / Referrer-Policy\n"
+           "  --no-request-id        Disable X-Request-Id and traceparent propagation\n"
            "  --plugin FILE          Load a plugin (.so/.dll), repeatable\n"
            "  --gate-upstream URL    Safe-Gate: sanitize and forward unmatched requests\n"
            "  --kv-snapshot FILE     Load the key-value store at start, save it on exit\n"
+           "  --kv-wal FILE          Write-ahead log of every KV change, replayed at start\n"
+           "  --kv-wal-sync          fsync the WAL after each change (power-loss safe)\n"
            "  --heartbeat-ms N       Resource sampling period (default 5000)\n"
            "  --heartbeat-url URL    POST a heartbeat to this URL\n"
            "  --eco-temp C           Eco-Throttle above this CPU temperature\n"
@@ -379,6 +388,11 @@ static bool load_config(const char* path, server_options* o) {
     if (nyxj_get_member(cfg, "eco_temp")) a->eco_temp_c = nyxj_get_number(cfg, "eco_temp");
     if (nyxj_get_member(cfg, "eco_load")) a->eco_load = nyxj_get_number(cfg, "eco_load");
     if (nyxj_get_member(cfg, "cors")) a->cors = nyxj_get_bool(cfg, "cors");
+    if (nyxj_get_member(cfg, "rate_limit")) a->rate_limit_rps = nyxj_get_number(cfg, "rate_limit");
+    if (nyxj_get_member(cfg, "rate_burst")) a->rate_limit_burst = (int)nyxj_get_int(cfg, "rate_burst");
+    if (nyxj_get_member(cfg, "idle_timeout_ms")) a->idle_timeout_ms = (int)nyxj_get_int(cfg, "idle_timeout_ms");
+    if (nyxj_get_member(cfg, "security_headers")) a->security_headers = nyxj_get_bool(cfg, "security_headers");
+    if (nyxj_get_member(cfg, "request_id")) a->request_id = nyxj_get_bool(cfg, "request_id");
     if (nyxj_get_member(cfg, "access_log")) a->access_log = nyxj_get_bool(cfg, "access_log");
     const char* level = nyxj_get_string(cfg, "log_level");
     nyxj_log_level lv;
@@ -386,6 +400,8 @@ static bool load_config(const char* path, server_options* o) {
     if (nyxj_get_bool(cfg, "log_json")) nyxj_log_set_json(true);
     o->gate_upstream = cfg_str(cfg, "gate_upstream", o->gate_upstream);
     o->kv_snapshot = cfg_str(cfg, "kv_snapshot", o->kv_snapshot);
+    o->kv_wal = cfg_str(cfg, "kv_wal", o->kv_wal);
+    if (nyxj_get_member(cfg, "kv_wal_sync")) o->kv_wal_sync = nyxj_get_bool(cfg, "kv_wal_sync");
     o->cluster_bind = cfg_str(cfg, "cluster_bind", o->cluster_bind);
     o->cluster_advertise = cfg_str(cfg, "cluster_advertise", o->cluster_advertise);
     o->cluster_name = cfg_str(cfg, "cluster_name", o->cluster_name);
@@ -423,6 +439,13 @@ static int parse_args(int argc, char** argv, server_options* o, char* listen_buf
         else if (!strcmp(a, "--log-json")) nyxj_log_set_json(true);
         else if (!strcmp(a, "--no-access-log")) o->app.access_log = false;
         else if (!strcmp(a, "--no-cors")) o->app.cors = false;
+        else if (!strcmp(a, "--rate-limit")) { NEED_VALUE(); o->app.rate_limit_rps = atof(v); }
+        else if (!strcmp(a, "--rate-burst")) { NEED_VALUE(); o->app.rate_limit_burst = atoi(v); }
+        else if (!strcmp(a, "--idle-timeout")) { NEED_VALUE(); o->app.idle_timeout_ms = atoi(v); }
+        else if (!strcmp(a, "--no-security-headers")) o->app.security_headers = false;
+        else if (!strcmp(a, "--no-request-id")) o->app.request_id = false;
+        else if (!strcmp(a, "--kv-wal")) { NEED_VALUE(); o->kv_wal = v; }
+        else if (!strcmp(a, "--kv-wal-sync")) o->kv_wal_sync = true;
         else if (!strcmp(a, "--plugin")) { NEED_VALUE(); if (o->nplugins < MAX_PLUGINS) o->plugins[o->nplugins++] = v; }
         else if (!strcmp(a, "--gate-upstream")) { NEED_VALUE(); o->gate_upstream = v; }
         else if (!strcmp(a, "--kv-snapshot")) { NEED_VALUE(); o->kv_snapshot = v; }
@@ -463,6 +486,13 @@ int main(int argc, char** argv) {
     if (o.gate_upstream) nyxj_app_enable_gate_proxy(g_app, o.gate_upstream, NULL);
     if (o.kv_snapshot && !nyxj_kv_load(nyxj_app_kv(g_app), o.kv_snapshot, &err))
         NYXJ_INFO("server", "no snapshot loaded (%s)", err.message);
+    if (o.kv_wal) { /* After the snapshot: the log holds the changes made since */
+        if (nyxj_kv_wal_open(nyxj_app_kv(g_app), o.kv_wal, o.kv_wal_sync, &err))
+            NYXJ_INFO("server", "KV write-ahead log %s (%lu record(s) replayed)", o.kv_wal,
+                      (unsigned long)nyxj_kv_wal_replayed(nyxj_app_kv(g_app)));
+        else
+            NYXJ_ERROR("server", "%s", err.message);
+    }
 
     if (!nyxj_app_listen(g_app, &err)) {
         NYXJ_FATAL("server", "%s", err.message);
@@ -489,7 +519,11 @@ int main(int argc, char** argv) {
     fflush(stdout);
 
     rc = nyxj_app_run(g_app);
-    if (o.kv_snapshot && !nyxj_kv_save(nyxj_app_kv(g_app), o.kv_snapshot, &err)) NYXJ_ERROR("server", "%s", err.message);
+    if (o.kv_snapshot) { /* With a WAL, the checkpoint also empties the log */
+        bool saved = o.kv_wal ? nyxj_kv_checkpoint(nyxj_app_kv(g_app), o.kv_snapshot, &err)
+                              : nyxj_kv_save(nyxj_app_kv(g_app), o.kv_snapshot, &err);
+        if (!saved) NYXJ_ERROR("server", "%s", err.message);
+    }
     nyxj_app_destroy(g_app);
     nyxj_free_value(o.config_doc);
     return rc;

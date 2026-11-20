@@ -408,7 +408,10 @@ nyxj <command> [options] [file]
   `curl -s https://api.example.com/items | nyxj format`.
 - `-o FILE` writes the result to a file instead of the screen.
 - `--indent N` sets the indentation of pretty-printed output (2 by default).
-- The exit code is `0` on success and `1` on failure, which makes `nyxj` easy to use in scripts.
+- `--sort-keys` writes object keys in byte order (canonical output, stable diffs) and `--ascii` escapes
+  every non-ASCII character as `\uXXXX`. Both apply to every command that prints JSON.
+- The exit code is `0` on success, `1` when the input is invalid or the operation fails, and `2` for a
+  usage error, which makes `nyxj` easy to use in scripts and CI pipelines.
 - `nyxj help` lists every command.
 
 Let us create a few sample files to play with:
@@ -575,6 +578,27 @@ nyxj gate --strict body.json     # runs the Guardian security checks
 nyxj bench store.json            # measures the speed of every engine mode on your machine
 ```
 
+`nyxj validate` accepts several files. It reports each invalid one as `file:line:column: message`, prints
+a summary and exits with `1` if any file is invalid, which is all a CI step needs:
+
+```bash
+nyxj validate config/*.json
+# config/app.json: valid JSON (object, 4 top-level members)
+# nyxj: config/db.json:3:5: unexpected character ... [UNEXPECTED_CHAR]
+# 2 file(s) checked, 1 valid, 1 invalid
+```
+
+`nyxj watch` re-runs a command every time a file changes, which is handy while editing a configuration
+or a schema:
+
+```bash
+nyxj watch store.json query '$..title'      # runs: nyxj query '$..title' store.json
+nyxj watch --interval 200 data.json validate
+```
+
+The watched file is appended to the command's arguments. `--count N` stops after N runs (useful in
+scripts).
+
 `nyxj stream` prints counts (documents, objects, keys, numbers, maximum depth...) and the parser's memory
 footprint, which stays the same whatever the file size. `nyxj tokens` output looks like this:
 
@@ -598,6 +622,7 @@ footprint, which stays the same whatever the file size. `nyxj tokens` output loo
 | `diff`, `patch` | Compute and apply changes |
 | `msgpack` | Convert to and from MessagePack |
 | `gen-struct` | Generate C structs and mapping tables |
+| `watch` | Re-run a command when a file changes |
 | `stream`, `tokens`, `gate`, `bench` | Stream, inspect, secure and benchmark |
 
 ---
@@ -816,6 +841,21 @@ object with 3 member(s)
       number: 1
       null
 ```
+
+For flat loops, the iteration macros save the index bookkeeping. Each expands to a single `for`
+statement, so `break` and `continue` work as usual, and a `NULL` or a value of another type simply gives
+zero iterations:
+
+```c
+NYXJ_ARRAY_FOREACH(nyxj_get_member(doc, "tags"), item) {
+    if (item->type == NYXJ_STRING) printf("tag: %s\n", item->as.string);
+}
+NYXJ_OBJECT_FOREACH(doc, pair) {
+    printf("%s is a %s\n", pair->key, nyxj_type_name(pair->value->type));
+}
+```
+
+Do not add or remove members of the container inside such a loop.
 
 ### Ownership: who frees what?
 
@@ -2597,7 +2637,12 @@ big      blocked: size_limit (payload exceeds the maximum size)
 - Validate shapes with a schema before using the data.
 - Serve over HTTPS (Chapter 26) and verify certificates when calling other services (Chapter 27).
 - Never log secrets (tokens, passwords) or whole request bodies containing personal data.
-- Run your tests under AddressSanitizer and UndefinedBehaviorSanitizer (`make SAN=1 test`).
+- Run your tests under AddressSanitizer and UndefinedBehaviorSanitizer (`make SAN=1 test`), and the
+  fuzzers on your own inputs (`make fuzz-run`, Chapter 33).
+- Check text from untrusted sources with `nyxj_utf8_validate()` before storing or forwarding it: it
+  rejects overlong forms, UTF-16 surrogates and code points above U+10FFFF, like the parser does.
+- On a public service, enable rate limiting and keep the security headers and idle timeout on
+  (Chapter 28).
 
 ### Recap
 
@@ -2881,11 +2926,36 @@ restored 2 keys from store.json
 The snapshot is plain JSON, `{"key": {"value": ..., "ttl_ms": N}, ...}`, so you can read or edit it with
 any tool. TTLs are saved as time remaining.
 
+### Durability: the write-ahead log
+
+A snapshot only holds what the store contained when it was taken: a crash loses every change made since.
+The write-ahead log (WAL) closes that gap. Once opened, every `set`, `del`, `incr`, `expire` and `clear`
+appends one JSON line to the log before the call returns:
+
+```c
+nyxj_kv* kv = nyxj_kv_create(0);
+nyxj_kv_load(kv, "store.json", &err);              /* 1. last snapshot (may not exist yet) */
+nyxj_kv_wal_open(kv, "store.wal", false, &err);    /* 2. replay what happened since, then log */
+printf("%zu change(s) replayed\n", nyxj_kv_wal_replayed(kv));
+/* ... the service runs ... */
+nyxj_kv_checkpoint(kv, "store.json", &err);        /* 3. fresh snapshot + empty log */
+```
+
+- Recovery is always "snapshot, then log". Every record is idempotent (an increment is logged as the
+  resulting value), so replaying a change that is already in the snapshot is harmless.
+- A record torn by a crash in the middle of a write is detected, reported in the log and discarded.
+- With `sync = false` each record is flushed to the operating system, which survives a crash of the
+  process. With `sync = true` it is also `fsync`ed, which survives a power loss but costs a disk write
+  per change.
+- Call `nyxj_kv_checkpoint` from time to time (a timer, or at shutdown) to keep the log short.
+  `nyxj-server --kv-snapshot store.json --kv-wal store.wal` does all of this for you.
+
 ### Recap
 
 - An in-process, thread-safe store of JSON values with TTL, counters and prefix listing.
 - `set` and `get` work on copies: always free what `get` returns.
 - Snapshots (`save`/`load`) persist the store as readable JSON.
+- The write-ahead log (`nyxj_kv_wal_open`, `nyxj_kv_checkpoint`) makes every change survive a crash.
 
 ---
 
@@ -3728,6 +3798,39 @@ duration and response size:
 Switch to JSON lines with `nyxj_log_set_json(true)` when a log collector (Loki, Elasticsearch,
 CloudWatch...) reads them.
 
+### Request IDs and distributed tracing
+
+Every request gets a request ID and a W3C Trace Context (`request_id`, on by default):
+
+- An incoming `X-Request-Id` (up to 64 letters, digits, `-`, `_`, `.` or `:`) is kept, otherwise a random
+  one is generated. An incoming `traceparent` header keeps its trace id; otherwise a new trace starts.
+- The response carries `X-Request-Id` and a `traceparent` naming this request as the current span.
+- Log lines written while the request is handled, in handlers, middleware, async jobs and the access log,
+  carry the ids: `request_id` and `trace_id` fields in JSON mode, `rid=...` in text mode.
+- Handlers read them with `nyxj_req_id(req)` and `nyxj_req_trace_id(req)`. To continue the trace in a
+  call to another service, forward `nyxj_req_traceparent(req, buf, sizeof(buf))` as its `traceparent`
+  header.
+
+```json
+{"ts":"2026-11-20T10:02:11.120Z","level":"INFO","module":"http","msg":"GET /todos 200 0.081ms 52B","request_id":"7f3c9a...","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736"}
+```
+
+Your own code can tag its log lines the same way with `nyxj_log_set_context(request_id, trace_id)`.
+
+### Protecting the service: rate limits, timeouts and headers
+
+| Setting | Default | Effect |
+|---|---|---|
+| `rate_limit_rps`, `rate_limit_burst` | off | Token bucket per client: the `X-API-Key` header when present, the IP address otherwise. Over the limit, `429` with `Retry-After`; `/health`, `/ready` and `/metrics` are exempt. Rejections are counted in `nyxj_http_rate_limited_total` |
+| `idle_timeout_ms` | 60000 | Closes keep-alive connections that stay silent, which also defeats "slowloris" clients holding sockets open. Connections waiting for an async handler are not affected |
+| `security_headers` | on | `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, plus `Strict-Transport-Security` over HTTPS |
+| `max_body_size` | 16 MiB | Larger bodies are refused with `413` before they are read |
+
+```c
+cfg.rate_limit_rps = 20;     /* 20 requests per second per client... */
+cfg.rate_limit_burst = 40;   /* ...with bursts of up to 40 */
+```
+
 ### Heartbeat
 
 Every `heartbeat_ms` (5 s by default) the application samples CPU time, memory, load and temperature,
@@ -3760,8 +3863,9 @@ cfg.eco_load = 1.0;    /* or above a load of 1.0 per CPU */
 ### Graceful shutdown
 
 Container platforms stop a service by sending `SIGTERM`, then kill it a few seconds later. Install a
-signal handler that calls `nyxj_app_stop` (as in the todo example): `nyxj_app_run` then finishes the
-async jobs in progress and returns, and you can save state (for example `nyxj_kv_save`) before exiting.
+signal handler that calls `nyxj_app_stop` (as in the todo example): `nyxj_app_run` then stops accepting
+connections, finishes the async jobs in progress, sends their responses and returns, and you can save
+state (for example `nyxj_kv_checkpoint`) before exiting.
 
 ### Production checklist
 
@@ -3771,7 +3875,8 @@ async jobs in progress and returns, and you can save state (for example `nyxj_kv
 - [ ] HTTPS enabled, or TLS terminated by a trusted proxy.
 - [ ] `/health` and `/ready` wired to the orchestrator; `/metrics` scraped.
 - [ ] `SIGTERM` handled; state saved on exit if needed.
-- [ ] Logs in JSON for the collector, with no secrets in them.
+- [ ] Logs in JSON for the collector, with no secrets in them; request IDs forwarded to other services.
+- [ ] Rate limiting enabled on public endpoints; security headers and idle timeout left on.
 - [ ] Tests run with `make SAN=1 test` in CI.
 
 ### Recap
@@ -3978,9 +4083,14 @@ Open `http://localhost:8000/docs` to explore and try every endpoint from your br
 | `--log-json` | `log_json` | Structured JSON logs |
 | `--no-access-log` | `access_log` | Disable per-request log lines |
 | `--no-cors` | `cors` | Disable CORS headers |
+| `--rate-limit RPS`, `--rate-burst N` | `rate_limit`, `rate_burst` | Requests per second per client, bucket size |
+| `--idle-timeout MS` | `idle_timeout_ms` | Close idle connections, default 60000 (0 = never) |
+| `--no-security-headers` | `security_headers` | Do not send the security headers |
+| `--no-request-id` | `request_id` | Disable `X-Request-Id` and `traceparent` |
 | `--plugin FILE` | `plugins` (array) | Load plugins (repeatable) |
 | `--gate-upstream URL` | `gate_upstream` | Safe-Gate mode (see below) |
 | `--kv-snapshot FILE` | `kv_snapshot` | Load the key-value store at start, save it on exit |
+| `--kv-wal FILE`, `--kv-wal-sync` | `kv_wal`, `kv_wal_sync` | Write-ahead log of every store change (Chapter 23) |
 | `--heartbeat-ms N`, `--heartbeat-url URL` | `heartbeat_ms`, `heartbeat_url` | Resource sampling and webhook |
 | `--eco-temp C`, `--eco-load L` | `eco_temp`, `eco_load` | Eco-Throttle thresholds |
 | `--cluster-bind URL` | `cluster_bind` | Enable gossip clustering |
@@ -4210,6 +4320,9 @@ python3 -m http.server 8080
 - `make wasm` compiles the core to `nyxj.js` + `nyxj.wasm` with Emscripten.
 - Functions take strings and return a JSON envelope `{"ok", "result" | "error"}`.
 - Free every result with `_nyxj_wasm_free`; serve pages over HTTP, not `file://`.
+- `make wasm` also copies `nyxj.d.ts`, the TypeScript definitions of the module and of the result
+  envelope. The `nyxj_wasm_*` functions are a stable surface: new functions may appear, existing
+  signatures do not change within a major version.
 
 ---
 
@@ -4245,8 +4358,10 @@ tests/
 ├── test_core.c       Parser, values, serializer, paths, arena, errors
 ├── test_modules.c    Mapping, schema, query, patch, msgpack, view, SAX, repair, gate, reliability
 ├── test_runtime.c    Thread pool, key-value store, metrics, IPC
-├── test_http.c       Router, helpers, and a live server queried with the HTTP client
-└── smoke.sh          End-to-end test of the nyxj and nyxj-server binaries
+├── test_http.c       Router, helpers, live server, rate limiting, request IDs, gossip
+├── smoke.sh          End-to-end test of the nyxj and nyxj-server binaries
+├── valgrind.supp     Valgrind suppressions (third-party code only)
+└── fuzz/             libFuzzer harnesses, replay driver and seed corpus
 ```
 
 A test is a function using `CHECK(condition)` (and `CHECK_STR(a, b)` for strings), registered with
@@ -4265,12 +4380,36 @@ RUN(test_new_feature);
 
 Every behavior change comes with a test. When you touch memory handling, also run `make SAN=1 test` on
 Linux or macOS: the sanitizers catch leaks, buffer overflows and undefined behavior that normal tests
-miss.
+miss. `make valgrind` runs the suite under Valgrind as a second opinion.
+
+### Fuzzing
+
+`tests/fuzz/fuzz.c` holds libFuzzer harnesses for the parser, repair, the streaming parser, NyxQuery, JSON
+Patch, JSON Schema, MessagePack and the UTF-8 validator. Besides "never crash", they check invariants:
+whatever parses serializes and parses back to an equal tree, the streaming and DOM parsers agree,
+`diff(a, b)` applied to `a` gives `b`, and the SIMD UTF-8 validator agrees with a byte-by-byte reference.
+
+```bash
+make fuzz                      # build the fuzzers (clang)
+make fuzz-run FUZZ_TIME=300    # five minutes per target
+make fuzz-replay               # replay tests/fuzz/corpus with any compiler
+```
+
+When a fuzzer finds a crash, it writes the input to `build/fuzz/crash_*`. Fix the bug, then add the file
+to `tests/fuzz/corpus/<target>/` so that every CI run replays it.
+
+### Benchmarks
+
+`make bench` downloads `twitter.json`, `canada.json` and `citm_catalog.json` (pinned to one commit of
+nativejson-benchmark and checked by SHA-256), then runs `nyxj bench` on each: DOM parsing (heap and
+arena), zero-copy view, streaming validation, serialization and MessagePack. Build with the same compiler
+and flags to compare two runs.
 
 ### Continuous integration
 
 Every push and pull request runs the `CI` workflow (`.github/workflows/ci.yml`) on Linux x64, Linux ARM64,
-macOS, Windows (MSYS2), a sanitizer build, and the WebAssembly build with a Node.js smoke test. A pull
+macOS, Windows (MSYS2), a sanitizer build (which also replays the fuzz corpus), Valgrind, 20 seconds of
+libFuzzer per target, the standard benchmarks, and the WebAssembly build with a Node.js smoke test. A pull
 request is merged only when everything is green.
 
 ### Releasing (maintainers)

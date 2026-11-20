@@ -52,6 +52,9 @@ typedef struct nyxj_request {
     nyxj_error json_error_;
     char* storage_;
     char params_buf_[512];
+    char request_id_[65]; /* X-Request-Id (received or generated) */
+    char trace_id_[33];   /* W3C Trace Context trace-id (32 hex digits) */
+    char span_id_[17];    /* Span id of this request (16 hex digits) */
 } nyxj_request;
 
 typedef struct nyxj_response {
@@ -99,6 +102,11 @@ typedef struct {
     const char* heartbeat_url;  /* Optional URL receiving a POST heartbeat */
     double eco_temp_c;          /* Eco-Throttle: throttle workers above this CPU temperature (0 = off) */
     double eco_load;            /* Eco-Throttle: throttle above this load per CPU (0 = off) */
+    double rate_limit_rps;      /* Requests per second per client (X-API-Key or IP), 0 = off */
+    int rate_limit_burst;       /* Bucket size (default: 2 x rate_limit_rps, at least 1) */
+    int idle_timeout_ms;        /* Close idle keep-alive connections after this delay (default 60000, 0 = off) */
+    bool security_headers;      /* nosniff, X-Frame-Options, Referrer-Policy, HSTS over TLS (default on) */
+    bool request_id;            /* X-Request-Id and W3C traceparent propagation (default on) */
 } nyxj_app_config;
 
 nyxj_app_config nyxj_app_config_default(void);
@@ -144,6 +152,11 @@ const char* nyxj_req_header(const nyxj_request* req, const char* name);
 bool        nyxj_req_query(const nyxj_request* req, const char* name, char* out, size_t out_size);
 nyxj_value* nyxj_req_json(nyxj_request* req); /* Lazily parsed, owned by the request */
 const nyxj_error* nyxj_req_json_error(const nyxj_request* req);
+const char* nyxj_req_id(const nyxj_request* req);       /* "" when request IDs are disabled */
+const char* nyxj_req_trace_id(const nyxj_request* req); /* 32 hex digits, "" when disabled */
+/* traceparent value for an outgoing call made on behalf of this request:
+ * same trace id, this request's span as parent. Returns false when disabled. */
+bool        nyxj_req_traceparent(const nyxj_request* req, char* out, size_t out_size);
 
 /* --- Response helpers --- */
 

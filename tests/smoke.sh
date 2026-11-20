@@ -18,6 +18,19 @@ fixed=$(printf '%s' "{name: 'NyxJ', tags: ['fast' 'small',], ok: True}" | "$BIN/
 [ "$fixed" = '{"name":"NyxJ","tags":["fast","small"],"ok":true}' ] || { echo "FAIL repair: $fixed"; exit 1; }
 echo "ok   cli repair"
 
+sorted=$(printf '{"b":1,"a":"\303\251"}' | "$BIN/nyxj$EXE" minify --sort-keys --ascii)
+[ "$sorted" = '{"a":"\u00e9","b":1}' ] || { echo "FAIL cli sort-keys/ascii: $sorted"; exit 1; }
+echo "ok   cli sort-keys ascii"
+
+printf '{"ok":true}' > smoke_good.json
+printf '{"ok":' > smoke_bad.json
+if "$BIN/nyxj$EXE" validate smoke_good.json smoke_bad.json >/dev/null 2>&1; then
+  echo "FAIL cli validate should fail on an invalid file"; exit 1
+fi
+"$BIN/nyxj$EXE" validate smoke_good.json smoke_good.json >/dev/null || { echo "FAIL cli validate"; exit 1; }
+rm -f smoke_good.json smoke_bad.json
+echo "ok   cli validate (multi-file exit codes)"
+
 "$BIN/nyxj-server$EXE" --port "$PORT" --plugin "$BIN/plugins/hello_plugin$SO" --no-access-log --log-level warn &
 PID=$!
 trap 'kill $PID 2>/dev/null || true' EXIT
@@ -57,4 +70,9 @@ check not_found '"status":404'                "$BASE/nowhere"
 check metrics   'nyxj_http_requests_total'    "$BASE/metrics"
 check openapi   '"/api/kv/{key}"'             "$BASE/openapi.json"
 check info      '"version":"'                 "$BASE/api/info"
+headers=$(curl -s -D - -o /dev/null -H 'X-Request-Id: smoke-1' "$BASE/api/info")
+case "$headers" in *"X-Request-Id: smoke-1"*) ;; *) echo "FAIL request id: $headers"; exit 1 ;; esac
+case "$headers" in *"traceparent: 00-"*) ;; *) echo "FAIL traceparent: $headers"; exit 1 ;; esac
+case "$headers" in *"X-Content-Type-Options: nosniff"*) echo "ok   request id, traceparent, security headers" ;;
+  *) echo "FAIL security headers: $headers"; exit 1 ;; esac
 echo "smoke test passed"

@@ -34,6 +34,9 @@ nyxj_app_config nyxj_app_config_default(void) {
     c.service_version = NYXJ_VERSION;
     c.ready_queue_ratio = 0.9;
     c.heartbeat_ms = 5000;
+    c.idle_timeout_ms = 60000;
+    c.security_headers = true;
+    c.request_id = true;
     return c;
 }
 
@@ -126,6 +129,15 @@ nyxj_app* nyxj_app_create(const nyxj_app_config* config) {
     app->m_parse_errors = nyxj_metrics_counter(m, "nyxj_json_parse_errors_total", "Request bodies that failed to parse", NULL);
     app->m_parse_duration = nyxj_metrics_histogram(m, "nyxj_json_parse_duration_seconds", "Time spent parsing request JSON", NULL, NULL, 0);
     app->m_parsed_bytes = nyxj_metrics_counter(m, "nyxj_json_parsed_bytes_total", "Bytes of request JSON parsed", NULL);
+    app->m_rate_limited = nyxj_metrics_counter(m, "nyxj_http_rate_limited_total", "Requests rejected by the rate limiter", NULL);
+    if (app->cfg.rate_limit_rps > 0) {
+        if (app->cfg.rate_limit_burst <= 0) {
+            double b = app->cfg.rate_limit_rps * 2;
+            app->cfg.rate_limit_burst = b < 1 ? 1 : b > 1e6 ? 1000000 : (int)b;
+        }
+        app->rate = calloc(NYXJ_RATE_SLOTS, sizeof(nyxj_rate_slot));
+        if (!app->rate) { nyxj_app_destroy(app); return NULL; }
+    }
     char labels[160];
     snprintf(labels, sizeof(labels), "version=\"%s\",simd=\"%s\"", NYXJ_VERSION, nyxj_simd_backend());
     nyxj_metric_set(nyxj_metrics_gauge(m, "nyxj_build_info", "NyxJ build information", labels), 1);
@@ -176,6 +188,7 @@ void nyxj_app_destroy(nyxj_app* app) {
     free(app->description);
     free(app->service_version);
     free(app->heartbeat_url);
+    free(app->rate);
     nyxj_mutex_destroy(&app->done_lock);
     free(app);
 }
@@ -302,7 +315,8 @@ static const char* status_text(int s) {
     }
 }
 
-static void send_response(nyxj_app* app, struct mg_connection* c, nyxj_response* res, bool head) {
+static void send_response(nyxj_app* app, struct mg_connection* c, const nyxj_request* req, nyxj_response* res,
+                          bool head) {
     if (res->status == 0) res->status = res->body_len ? 200 : 204;
     bool has_body = res->status != 204 && res->status != 304;
     mg_printf(c, "HTTP/1.1 %d %s\r\n", res->status, status_text(res->status));
@@ -312,6 +326,14 @@ static void send_response(nyxj_app* app, struct mg_connection* c, nyxj_response*
     }
     mg_printf(c, "Server: NyxJ/%s\r\n", NYXJ_VERSION);
     if (app->cfg.cors) mg_printf(c, "Access-Control-Allow-Origin: *\r\n");
+    if (app->cfg.security_headers) {
+        mg_printf(c, "X-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\n");
+        if (app->tls) mg_printf(c, "Strict-Transport-Security: max-age=31536000\r\n");
+    }
+    if (req && req->request_id_[0]) {
+        mg_printf(c, "X-Request-Id: %s\r\n", req->request_id_);
+        mg_printf(c, "traceparent: 00-%s-%s-01\r\n", req->trace_id_, req->span_id_);
+    }
     mg_printf(c, "%s\r\n", res->headers);
     if (has_body && !head && res->body_len) mg_send(c, res->body, res->body_len);
 }
@@ -324,8 +346,11 @@ static void finish_request(nyxj_app* app, nyxj_request* req, nyxj_response* res,
     nyxj_metrics_escape_label(req->route && *req->route ? req->route : "unmatched", route, sizeof(route));
     snprintf(labels, sizeof(labels), "method=\"%s\",route=\"%s\",status=\"%d\"", req->method, route, res->status);
     nyxj_metric_inc(nyxj_metrics_counter(app->metrics, "nyxj_http_requests_total", "HTTP requests by route and status", labels));
-    if (app->cfg.access_log)
+    if (app->cfg.access_log) {
+        nyxj_log_set_context(req->request_id_, req->trace_id_);
         NYXJ_INFO(MOD, "%s %s %d %.3fms %luB", req->method, req->path, res->status, secs * 1000.0, (unsigned long)res->body_len);
+        nyxj_log_set_context(NULL, NULL);
+    }
     free_request(req);
     free(res->body);
     res->body = NULL;
@@ -335,7 +360,9 @@ static void finish_request(nyxj_app* app, nyxj_request* req, nyxj_response* res,
 
 static void job_run(void* arg) {
     nyxj_job* j = arg;
+    nyxj_log_set_context(j->req.request_id_, j->req.trace_id_);
     j->h(&j->req, &j->res);
+    nyxj_log_set_context(NULL, NULL);
     nyxj_app* app = j->app;
     nyxj_mutex_lock(&app->done_lock);
     j->next = NULL;
@@ -356,8 +383,9 @@ static void drain_done(nyxj_app* app, bool send) {
         struct mg_connection* c = NULL;
         if (send)
             for (c = app->mgr.conns; c && c->id != j->conn_id; c = c->next) {}
+        if (c) c->data[1] = 0; /* No longer busy: the idle timeout applies again */
         if (c && !c->is_closing) {
-            send_response(app, c, &j->res, j->head);
+            send_response(app, c, &j->req, &j->res, j->head);
             c->is_resp = 0; /* Let Mongoose parse the next pipelined request */
             if (j->close_after) c->is_draining = 1;
         }
@@ -415,6 +443,96 @@ static bool build_request(nyxj_app* app, struct mg_connection* c, struct mg_http
     return true;
 }
 
+/* --- Request correlation (X-Request-Id, W3C Trace Context) --- */
+
+static void random_hex(char* out, size_t digits) {
+    static const char hex[] = "0123456789abcdef";
+    unsigned char rnd[32];
+    size_t bytes = (digits + 1) / 2;
+    if (bytes > sizeof(rnd)) bytes = sizeof(rnd);
+    mg_random(rnd, bytes);
+    for (size_t i = 0; i < digits && i / 2 < bytes; i++) out[i] = hex[(rnd[i / 2] >> ((i & 1) ? 0 : 4)) & 0xF];
+    out[digits] = '\0';
+}
+
+static bool is_lower_hex(const char* s, size_t n) {
+    bool nonzero = false;
+    for (size_t i = 0; i < n; i++) {
+        char ch = s[i];
+        if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'))) return false;
+        nonzero |= ch != '0';
+    }
+    return nonzero; /* All-zero ids are invalid per the W3C spec */
+}
+
+static void assign_ids(nyxj_request* req) {
+    const char* rid = nyxj_req_header(req, "X-Request-Id");
+    size_t n = rid ? strlen(rid) : 0;
+    bool ok = n > 0 && n <= 64;
+    for (size_t i = 0; ok && i < n; i++) {
+        char ch = rid[i];
+        ok = (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || ch == '-' ||
+             ch == '_' || ch == '.' || ch == ':';
+    }
+    if (ok) memcpy(req->request_id_, rid, n + 1);
+    else random_hex(req->request_id_, 32);
+
+    /* traceparent: 00-<32 hex trace-id>-<16 hex parent-id>-<2 hex flags> */
+    const char* tp = nyxj_req_header(req, "traceparent");
+    if (tp && strlen(tp) >= 55 && tp[0] == '0' && tp[1] == '0' && tp[2] == '-' && tp[35] == '-' && tp[52] == '-' &&
+        is_lower_hex(tp + 3, 32) && is_lower_hex(tp + 36, 16)) {
+        memcpy(req->trace_id_, tp + 3, 32);
+        req->trace_id_[32] = '\0';
+    } else {
+        random_hex(req->trace_id_, 32);
+    }
+    random_hex(req->span_id_, 16);
+}
+
+/* --- Rate limiting (token bucket per client) --- */
+
+static uint64_t rate_hash(const char* kind, const char* key) {
+    uint64_t h = 0xcbf29ce484222325ULL;
+    for (const char* p = kind; *p; p++) { h ^= (unsigned char)*p; h *= 0x100000001b3ULL; }
+    for (const char* p = key; *p; p++) { h ^= (unsigned char)*p; h *= 0x100000001b3ULL; }
+    return h ? h : 1;
+}
+
+/* Returns 0 when the request may proceed, otherwise the seconds to wait. */
+static int rate_check(nyxj_app* app, const nyxj_request* req) {
+    const char* key = nyxj_req_header(req, "X-API-Key");
+    uint64_t h = key && *key ? rate_hash("k:", key) : rate_hash("ip:", req->remote_addr);
+    uint64_t now = nyxj_now_ms();
+    double rps = app->cfg.rate_limit_rps, burst = app->cfg.rate_limit_burst;
+    size_t base = (size_t)(h % NYXJ_RATE_SLOTS);
+    nyxj_rate_slot* slot = NULL;
+    nyxj_rate_slot* victim = NULL;
+    for (size_t k = 0; k < NYXJ_RATE_PROBE; k++) {
+        nyxj_rate_slot* s = &app->rate[(base + k) % NYXJ_RATE_SLOTS];
+        if (s->hash == h) { slot = s; break; }
+        if (!victim || (victim->hash != 0 && (s->hash == 0 || s->last_ms < victim->last_ms))) victim = s;
+    }
+    if (!slot) { /* New client: take an empty or the least recently used slot */
+        slot = victim;
+        slot->hash = h;
+        slot->tokens = burst;
+        slot->last_ms = now;
+    }
+    slot->tokens += (double)(now - slot->last_ms) / 1000.0 * rps;
+    if (slot->tokens > burst) slot->tokens = burst;
+    slot->last_ms = now;
+    if (slot->tokens >= 1.0) {
+        slot->tokens -= 1.0;
+        return 0;
+    }
+    int wait = (int)((1.0 - slot->tokens) / rps + 0.999);
+    return wait < 1 ? 1 : wait;
+}
+
+static bool rate_exempt(const char* path) {
+    return strcmp(path, "/health") == 0 || strcmp(path, "/ready") == 0 || strcmp(path, "/metrics") == 0;
+}
+
 static bool method_matches(const char* route_method, const char* method) {
     if (strcmp(route_method, "*") == 0 || strcmp(route_method, method) == 0) return true;
     return strcmp(method, "HEAD") == 0 && strcmp(route_method, "GET") == 0;
@@ -432,6 +550,8 @@ static void handle_request(nyxj_app* app, struct mg_connection* c, struct mg_htt
         return;
     }
     bool head = strcmp(req.method, "HEAD") == 0;
+    if (app->cfg.request_id) assign_ids(&req);
+    nyxj_log_set_context(req.request_id_, req.trace_id_);
     struct mg_str* conn_hdr = mg_http_get_header(hm, "Connection");
     bool close_after = conn_hdr && mg_strcasecmp(*conn_hdr, mg_str("close")) == 0;
 
@@ -444,6 +564,17 @@ static void handle_request(nyxj_app* app, struct mg_connection* c, struct mg_htt
         nyxj_res_header(&res, "Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
         nyxj_res_header(&res, "Access-Control-Max-Age", "86400");
         goto respond;
+    }
+    if (app->rate && !rate_exempt(req.path)) {
+        int wait = rate_check(app, &req);
+        if (wait) {
+            char ra[16];
+            snprintf(ra, sizeof(ra), "%d", wait);
+            nyxj_metric_inc(app->m_rate_limited);
+            nyxj_res_header(&res, "Retry-After", ra);
+            nyxj_res_error(&res, 429, "rate_limited", "too many requests, retry later");
+            goto respond;
+        }
     }
     for (int i = 0; i < app->nmws; i++)
         if (!app->mws[i].fn(&req, &res, app->mws[i].user)) goto respond;
@@ -498,7 +629,11 @@ static void handle_request(nyxj_app* app, struct mg_connection* c, struct mg_htt
                 j->req.params[i].name = j->req.params_buf_ + (req.params[i].name - req.params_buf_);
                 j->req.params[i].value = j->req.params_buf_ + (req.params[i].value - req.params_buf_);
             }
-            if (nyxj_pool_submit(app->pool, job_run, j)) return; /* Response sent from drain_done() */
+            if (nyxj_pool_submit(app->pool, job_run, j)) { /* Response sent from drain_done() */
+                c->data[1] = 'B'; /* Busy: exempt from the idle timeout */
+                nyxj_log_set_context(NULL, NULL);
+                return;
+            }
             free(j);
         }
         nyxj_metric_inc(app->m_rejected);
@@ -509,14 +644,39 @@ static void handle_request(nyxj_app* app, struct mg_connection* c, struct mg_htt
     h(&req, &res);
 
 respond:
-    send_response(app, c, &res, head);
+    send_response(app, c, &req, &res, head);
     c->is_resp = 0;
     if (close_after) c->is_draining = 1;
+    nyxj_log_set_context(NULL, NULL);
     finish_request(app, &req, &res, start);
+}
+
+/* Connection bookkeeping in c->data: [0] 'X' = 413 already sent, [1] 'B' = async
+ * job in flight, bytes 8..15 = last activity (monotonic ms). */
+static void touch(struct mg_connection* c) {
+    uint64_t now = nyxj_now_ms();
+    memcpy(c->data + 8, &now, sizeof(now));
+}
+
+static void http_fn(struct mg_connection* c, int ev, void* ev_data);
+
+static void idle_sweep(nyxj_app* app, void* user) {
+    (void)user;
+    uint64_t now = nyxj_now_ms();
+    for (struct mg_connection* c = app->mgr.conns; c; c = c->next) {
+        if (c->fn != http_fn || c->is_listening || c->is_closing || c->data[1] == 'B') continue;
+        uint64_t last;
+        memcpy(&last, c->data + 8, sizeof(last));
+        if (last && now - last > (uint64_t)app->cfg.idle_timeout_ms) {
+            NYXJ_DEBUG(MOD, "closing idle connection %lu", c->id);
+            c->is_closing = 1;
+        }
+    }
 }
 
 static void http_fn(struct mg_connection* c, int ev, void* ev_data) {
     nyxj_app* app = c->fn_data;
+    if (ev == MG_EV_ACCEPT || ev == MG_EV_READ || ev == MG_EV_WRITE) touch(c);
     if (ev == MG_EV_ACCEPT && app->tls) {
         struct mg_tls_opts opts;
         memset(&opts, 0, sizeof(opts));
@@ -635,6 +795,10 @@ bool nyxj_app_listen(nyxj_app* app, nyxj_error* err) {
     }
     app->listening = true;
     if (app->cfg.heartbeat_ms > 0) nyxj_app_add_timer(app, (unsigned)app->cfg.heartbeat_ms, heartbeat_tick, NULL);
+    if (app->cfg.idle_timeout_ms > 0) {
+        unsigned period = app->cfg.idle_timeout_ms < 4000 ? (unsigned)app->cfg.idle_timeout_ms / 4 + 1 : 1000;
+        nyxj_app_add_timer(app, period, idle_sweep, NULL);
+    }
     NYXJ_INFO(MOD, "listening on %s (port %d, %s, %d routes)", app->listen_url, nyxj_app_port(app),
               app->tls ? "TLS" : "plain HTTP", app->nroutes);
     return true;
@@ -657,6 +821,8 @@ int nyxj_app_run(nyxj_app* app) {
     }
     while (!app->stop) nyxj_app_poll(app, 100);
     NYXJ_INFO(MOD, "shutting down");
+    if (app->listener) app->listener->is_closing = 1; /* Stop accepting, then drain */
+    app->listener = NULL;
     if (app->pool) nyxj_pool_wait(app->pool);
     for (int i = 0; i < 5; i++) nyxj_app_poll(app, 10); /* Flush pending responses */
     return 0;

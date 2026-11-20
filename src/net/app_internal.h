@@ -52,6 +52,15 @@ typedef struct {
     void* user;
 } nyxj_timer_slot;
 
+#define NYXJ_RATE_SLOTS 4096
+#define NYXJ_RATE_PROBE 8
+
+typedef struct {
+    uint64_t hash;    /* 0 = empty slot */
+    double tokens;
+    uint64_t last_ms;
+} nyxj_rate_slot;
+
 struct nyxj_app {
     nyxj_app_config cfg;
     char* listen_url;
@@ -105,6 +114,8 @@ struct nyxj_app {
     nyxj_metric* m_parse_errors;
     nyxj_metric* m_parse_duration;
     nyxj_metric* m_parsed_bytes;
+    nyxj_metric* m_rate_limited;
+    nyxj_rate_slot* rate; /* Token buckets, event-loop thread only */
 };
 
 /* Mongoose logs follow the NyxJ level: debug traces only at TRACE, errors otherwise. */

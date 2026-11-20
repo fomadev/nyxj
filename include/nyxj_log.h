@@ -33,6 +33,11 @@ nyxj_log_level nyxj_log_get_level(void);
 void           nyxj_log_set_json(bool enabled);     /* One JSON object per line */
 void           nyxj_log_set_stream(FILE* stream);   /* Default: stderr */
 void           nyxj_log_set_sink(nyxj_log_sink sink, void* user); /* NULL restores stream output */
+/* Per-thread correlation context added to every log line written by the
+ * calling thread ("request_id" / "trace_id" fields in JSON mode). The strings
+ * are copied (truncated to 64 bytes); pass NULL to clear a field. */
+void           nyxj_log_set_context(const char* request_id, const char* trace_id);
+void           nyxj_log_get_context(const char** request_id, const char** trace_id);
 bool           nyxj_log_level_parse(const char* name, nyxj_log_level* out);
 const char*    nyxj_log_level_name(nyxj_log_level level);
 

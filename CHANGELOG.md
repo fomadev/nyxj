@@ -26,7 +26,12 @@ a dozen data modules, a web framework with operations tooling, and a WebAssembly
 - Linear-time serializer with full escaping, shortest round-trip numbers, pretty-printing, sorted keys
   and optional `\uXXXX` output.
 - Structured logging with levels, JSON output, custom sinks and compile-time stripping
-  (`NYXJ_LOG_COMPILE_LEVEL`).
+  (`NYXJ_LOG_COMPILE_LEVEL`), plus a per-thread correlation context (`nyxj_log_set_context`) that adds
+  `request_id` and `trace_id` to every line.
+- `NYXJ_ARRAY_FOREACH` and `NYXJ_OBJECT_FOREACH` iteration macros (single `for` statements: `break` and
+  `continue` work).
+- `nyxj_utf8_validate()`: the parser's strict UTF-8 validator as a public function, now with a 16-byte
+  SSE2 / NEON fast path for ASCII runs.
 
 #### Data modules
 - JSON-to-struct mapping with field descriptors (`nyxj_map.h`), inverse mapping and a C code generator
@@ -45,7 +50,9 @@ a dozen data modules, a web framework with operations tooling, and a WebAssembly
 
 #### Runtime and networking
 - Worker thread pool with bounded queue, backpressure and adjustable concurrency.
-- Embedded key-value store with TTL, atomic counters, prefix listing and JSON snapshots.
+- Embedded key-value store with TTL, atomic counters, prefix listing and JSON snapshots, plus a
+  write-ahead log (`nyxj_kv_wal_open`, `nyxj_kv_checkpoint`) with crash recovery: torn records are
+  discarded and every record is idempotent.
 - Prometheus metrics registry and process/system resource monitoring.
 - Unix domain sockets and a lock-free shared-memory ring buffer for inter-process communication.
 - Express-style router with `:params` and wildcards, middleware chain, 405 handling, CORS and request
@@ -58,14 +65,29 @@ a dozen data modules, a web framework with operations tooling, and a WebAssembly
 - Safe-Gate reverse proxy that sanitizes requests before forwarding them to an upstream service.
 - Plugin system loading `.so`/`.dll` modules through a versioned host function table.
 - Experimental gossip clustering over UDP with peer discovery, failure detection and load sharing hints.
+  Messages are MessagePack (protocol v2); JSON messages from earlier builds are still accepted.
+- HTTP hardening: per-client token-bucket rate limiting (`X-API-Key` or IP, `429` + `Retry-After`,
+  probes exempt), idle connection timeout (60 s by default), default security headers
+  (`nosniff`, `X-Frame-Options`, `Referrer-Policy`, HSTS over TLS), and the listener is closed first on
+  shutdown.
+- Request correlation: `X-Request-Id` kept or generated, W3C `traceparent` propagation, both echoed in
+  responses and available to handlers (`nyxj_req_id`, `nyxj_req_trace_id`, `nyxj_req_traceparent`).
 
 #### Tooling
-- `nyxj` CLI: validate, format, minify, get, query, repair, schema, diff, patch, msgpack, gen-struct,
-  stream, tokens, gate and bench.
-- `nyxj-server` options for every feature and a JSON configuration file.
-- WebAssembly build of the core (`make wasm`) with a browser demo and Node.js smoke test.
-- Test suite (500+ checks) covering every module plus a live client/server integration test and an
-  end-to-end smoke script; CI on Linux x64/ARM64, macOS, Windows, sanitizers and WebAssembly.
+- `nyxj` CLI: validate (several files, `file:line:col` errors, CI exit codes), format, minify, get, query,
+  repair, schema, diff, patch, msgpack, gen-struct, stream, tokens, gate, bench and watch, with global
+  `--sort-keys` and `--ascii` options.
+- `nyxj-server` options for every feature and a JSON configuration file, including `--rate-limit`,
+  `--idle-timeout`, `--kv-wal` and switches for the security headers and request IDs.
+- WebAssembly build of the core (`make wasm`) with a browser demo, a Node.js smoke test and TypeScript
+  definitions (`nyxj.d.ts`).
+- libFuzzer harnesses for the parser, repair, SAX, NyxQuery, JSON Patch, JSON Schema, MessagePack and
+  UTF-8 validation, with invariant checks and a seed corpus (`make fuzz`, `make fuzz-run`,
+  `make fuzz-replay`); Valgrind target (`make valgrind`); reproducible benchmarks on the pinned
+  twitter, canada and citm_catalog datasets (`make bench`).
+- Test suite (590+ checks) covering every module plus a live client/server integration test and an
+  end-to-end smoke script; CI on Linux x64/ARM64, macOS, Windows, sanitizers (with fuzz corpus replay),
+  Valgrind, libFuzzer, benchmarks and WebAssembly.
 - Release pipeline: a `v*` tag builds and tests Linux x64/ARM64, macOS, Windows and WebAssembly, then
   publishes a GitHub release with generated notes (changelog highlights, grouped commits, pull requests,
   contributors), archives, the OpenAPI document, SHA-256 checksums and build provenance. A manual run

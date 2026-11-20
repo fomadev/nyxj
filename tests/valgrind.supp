@@ -1,0 +1,11 @@
+# Valgrind suppressions for `make valgrind`.
+# Keep this file small: every entry must name the third-party code and the
+# reason. NyxJ's own code must stay clean.
+{
+   dlopen_internal_allocations
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   ...
+   fun:_dl_open
+}

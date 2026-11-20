@@ -230,6 +230,61 @@ static void test_simd_long_strings(void) {
     nyxj_free_value(r.root);
 }
 
+static void test_foreach(void) {
+    nyxj_result r = nyxj_parse("{\"a\":[1,2,3,4],\"b\":true,\"c\":null}");
+    CHECK(r.is_valid);
+    double sum = 0;
+    int seen = 0;
+    NYXJ_ARRAY_FOREACH(nyxj_get_member(r.root, "a"), item) {
+        if (item->as.number == 4) break; /* break leaves the whole loop */
+        sum += item->as.number;
+        seen++;
+    }
+    CHECK(sum == 6 && seen == 3);
+    int members = 0;
+    NYXJ_OBJECT_FOREACH(r.root, pair) {
+        if (!strcmp(pair->key, "b")) continue;
+        members++;
+    }
+    CHECK(members == 2);
+    int none = 0;
+    NYXJ_ARRAY_FOREACH(r.root, item) { (void)item; none++; }  /* Not an array */
+    NYXJ_OBJECT_FOREACH((nyxj_value*)NULL, pair) { (void)pair; none++; }
+    CHECK(none == 0);
+    nyxj_free_value(r.root);
+}
+
+static void test_utf8_validate(void) {
+    size_t bad = 99;
+    CHECK(nyxj_utf8_validate("", 0, &bad) && bad == 0);
+    CHECK(nyxj_utf8_validate("caf\xc3\xa9 \xe2\x82\xac \xf0\x9f\x98\x80", 14, NULL));
+    CHECK(!nyxj_utf8_validate("\xc0\xaf", 2, &bad) && bad == 0);     /* Overlong '/' */
+    CHECK(!nyxj_utf8_validate("a\xed\xa0\x80", 4, &bad) && bad == 1); /* UTF-16 surrogate */
+    CHECK(!nyxj_utf8_validate("\xf4\x90\x80\x80", 4, &bad));        /* Above U+10FFFF */
+    CHECK(!nyxj_utf8_validate("ab\xe2\x82", 4, &bad) && bad == 2);   /* Truncated */
+    /* The SIMD ASCII fast path must still catch an error after 16+ clean bytes. */
+    char buf[64];
+    memset(buf, 'x', sizeof(buf));
+    buf[37] = (char)0xff;
+    CHECK(!nyxj_utf8_validate(buf, sizeof(buf), &bad) && bad == 37);
+    buf[37] = 'x';
+    CHECK(nyxj_utf8_validate(buf, sizeof(buf), &bad));
+    /* The parser rejects the same bytes inside strings. */
+    nyxj_result r = nyxj_parse("[\"xxxxxxxxxxxxxxxxxxxxxxxx\xed\xa0\x80\"]");
+    CHECK(!r.is_valid && r.error.code == NYXJ_ERR_INVALID_UTF8);
+}
+
+static void test_log_context(void) {
+    const char *rid, *tid;
+    nyxj_log_set_context("req-1", "4bf92f3577b34da6a3ce929d0e0e4736");
+    nyxj_log_get_context(&rid, &tid);
+    CHECK_STR(rid, "req-1");
+    CHECK_STR(tid, "4bf92f3577b34da6a3ce929d0e0e4736");
+    nyxj_log_set_context(NULL, NULL);
+    nyxj_log_get_context(&rid, &tid);
+    CHECK(rid == NULL && tid == NULL);
+}
+
 void suite_core(void) {
     RUN(test_empty_object);
     RUN(test_scalars);
@@ -242,4 +297,7 @@ void suite_core(void) {
     RUN(test_arena);
     RUN(test_logging);
     RUN(test_simd_long_strings);
+    RUN(test_foreach);
+    RUN(test_utf8_validate);
+    RUN(test_log_context);
 }

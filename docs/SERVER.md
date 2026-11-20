@@ -20,9 +20,14 @@ file (comments and trailing commas allowed).
 | `--log-json` | `log_json` | Structured JSON logs |
 | `--no-access-log` | `access_log` | Disable per-request log lines |
 | `--no-cors` | `cors` | Disable CORS headers |
+| `--rate-limit RPS`, `--rate-burst N` | `rate_limit`, `rate_burst` | Per-client rate limit (`X-API-Key` or IP), 429 above |
+| `--idle-timeout MS` | `idle_timeout_ms` | Close idle connections, default 60000 (0 = never) |
+| `--no-security-headers` | `security_headers` | Disable nosniff, X-Frame-Options, Referrer-Policy, HSTS |
+| `--no-request-id` | `request_id` | Disable `X-Request-Id` and W3C `traceparent` propagation |
 | `--plugin FILE` | `plugins` (array) | Load plugins |
 | `--gate-upstream URL` | `gate_upstream` | Safe-Gate mode |
 | `--kv-snapshot FILE` | `kv_snapshot` | Load the key-value store at start, save it on exit |
+| `--kv-wal FILE`, `--kv-wal-sync` | `kv_wal`, `kv_wal_sync` | Write-ahead log replayed at start; checkpointed on exit |
 | `--heartbeat-ms N`, `--heartbeat-url URL` | `heartbeat_ms`, `heartbeat_url` | Resource sampling and webhook |
 | `--eco-temp C`, `--eco-load L` | `eco_temp`, `eco_load` | Eco-Throttle thresholds |
 | `--cluster-bind URL` | `cluster_bind` | Enable gossip clustering |
@@ -102,7 +107,8 @@ curl http://localhost:8001/cluster/members
 ```
 
 Nodes gossip their membership and load once per second over UDP, mark silent peers `suspect` after 5 s
-and `dead` after 15 s, and report the least loaded peer for offloading.
+and `dead` after 15 s, and report the least loaded peer for offloading. Gossip messages are MessagePack
+(protocol v2); nodes still read the JSON messages of earlier versions.
 
 ## Plugins
 

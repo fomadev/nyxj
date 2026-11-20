@@ -18,20 +18,20 @@ core to WebAssembly.
 - **Big data**: zero-copy token view, constant-memory streaming parser and arena allocator.
 - **Web framework**: router with `:params`, middleware, async handlers, HTTPS, OpenAPI with Swagger UI,
   and an HTTP client.
-- **Operations**: Prometheus metrics, health and readiness probes, embedded key-value store, plugins, IPC
-  and gossip clustering.
+- **Operations**: Prometheus metrics, health and readiness probes, rate limiting, request IDs and W3C
+  trace context, embedded key-value store with a write-ahead log, plugins, IPC and gossip clustering.
 
 ## Where NyxJ shines
 
 - **Embedded and systems C/C++**: fast, portable JSON with no heavy dependencies and a small RAM
   footprint.
-- **Security**: limits on depth, size, strings and element counts, UTF-8 validation, the Guardian
-  sanitizer and protection against JSON-based attacks.
+- **Security**: limits on depth, size, strings and element counts, strict UTF-8 validation, the
+  Guardian sanitizer, protection against JSON-based attacks, and continuous fuzzing.
 - **Critical applications**: checksums, shadow (double) execution and triple modular redundancy.
 - **Large-scale data processing**: a constant-memory SAX parser, ideal for very large files and
   continuous streams.
-- **Micro-services in C**: HTTP server, HTTPS client, key-value store, metrics, clustering and plugins in
-  a single library.
+- **Micro-services in C**: HTTP server with rate limiting and request tracing, HTTPS client, key-value
+  store with a write-ahead log, metrics, clustering and plugins in a single library.
 - **WebAssembly**: run the engine in the browser or in Node.js.
 
 ## Quick start
@@ -69,6 +69,8 @@ int main(void) {
 nyxj validate data.json                              # syntax check with line and column
 nyxj query '$..book[?(@.price < 10)].title' store.json
 nyxj repair broken.json                              # fix comments, quotes, commas...
+nyxj validate config/*.json                          # several files, exit code 1 if any is invalid
+nyxj minify --sort-keys --ascii data.json            # canonical output
 ```
 
 ## Documentation

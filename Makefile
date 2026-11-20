@@ -2,7 +2,13 @@
 #
 #   make                 library, CLI, server, plugin example and examples
 #   make test            build and run the test suite
-#   make SAN=1 test      same with AddressSanitizer + UBSan
+#   make SAN=1 test      same with AddressSanitizer + UBSan (+ LeakSanitizer on Linux)
+#   make valgrind        run the test suite under Valgrind (Linux)
+#   make fuzz            libFuzzer harnesses in build/fuzz (requires clang)
+#   make fuzz-run        run every fuzzer for FUZZ_TIME seconds (default 30)
+#   make fuzz-replay     replay the fuzz corpus with any compiler
+#   make bench-data      download the standard benchmark datasets (pinned)
+#   make bench           benchmark twitter.json, canada.json and citm_catalog.json
 #   make wasm            WebAssembly build of the core (requires emcc)
 #   make dist PLATFORM=linux-x64   stage a release package in dist/
 #   make CC=aarch64-linux-gnu-gcc AR=aarch64-linux-gnu-ar   cross-compile
@@ -76,7 +82,8 @@ PLUGIN = $(BUILD)/plugins/hello_plugin$(SO)
 EXAMPLES = $(BUILD)/examples/api_example$(EXE) $(BUILD)/examples/client_test$(EXE) \
            $(BUILD)/examples/struct_mapping$(EXE) $(BUILD)/examples/streaming$(EXE)
 
-.PHONY: all lib cli server test examples plugin wasm dist install clean re version
+.PHONY: all lib cli server test examples plugin wasm dist install clean re version \
+        valgrind fuzz fuzz-run fuzz-replay bench-data bench
 
 all: lib cli server plugin examples
 
@@ -131,6 +138,60 @@ $(PLUGIN): examples/plugin_hello/hello_plugin.c include/nyxj_plugin.h
 test: $(TESTS) $(PLUGIN)
 	./$(TESTS)
 
+# --- Valgrind (Linux): memory errors and definite leaks fail the run ---
+
+VALGRIND ?= valgrind
+valgrind: $(TESTS) $(PLUGIN)
+	$(VALGRIND) --error-exitcode=1 --leak-check=full --errors-for-leak-kinds=definite \
+		--track-origins=yes --suppressions=tests/valgrind.supp ./$(TESTS)
+
+# --- Fuzzing (core only: no network code, no Mongoose) ---
+
+FUZZ_TARGETS = parse repair sax query patch schema msgpack utf8
+FUZZ_CC ?= clang
+FUZZ_TIME ?= 30
+FUZZ_DIR = $(BUILD)/fuzz
+FUZZ_FLAGS = -std=gnu11 -g -O1 -Iinclude -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=undefined
+
+fuzz:
+	@mkdir -p $(FUZZ_DIR)
+	@for t in $(FUZZ_TARGETS); do \
+		T=$$(echo $$t | tr a-z A-Z); \
+		echo "  FUZZ $$t"; \
+		$(FUZZ_CC) $(FUZZ_FLAGS) -DNYXJ_FUZZ_$$T tests/fuzz/fuzz.c $(CORE_SRC) -o $(FUZZ_DIR)/fuzz_$$t -lm || exit 1; \
+	done
+
+fuzz-run: fuzz
+	@for t in $(FUZZ_TARGETS); do \
+		echo "=== fuzz_$$t ($(FUZZ_TIME)s) ==="; \
+		mkdir -p $(FUZZ_DIR)/corpus_$$t; \
+		$(FUZZ_DIR)/fuzz_$$t -max_total_time=$(FUZZ_TIME) -max_len=65536 -timeout=10 -rss_limit_mb=2048 \
+			-artifact_prefix=$(FUZZ_DIR)/crash_$$t- $(FUZZ_DIR)/corpus_$$t tests/fuzz/corpus/$$t || exit 1; \
+	done
+
+fuzz-replay:
+	@mkdir -p $(FUZZ_DIR)
+	@for t in $(FUZZ_TARGETS); do \
+		T=$$(echo $$t | tr a-z A-Z); \
+		$(CC) -std=gnu11 $(OPT) -Iinclude $(SAN_FLAGS) $(WARN) -DNYXJ_FUZZ_$$T tests/fuzz/fuzz.c tests/fuzz/replay.c \
+			$(CORE_SRC) -o $(FUZZ_DIR)/replay_$$t$(EXE) $(LDFLAGS) -lm || exit 1; \
+		printf "  %-8s " $$t; ./$(FUZZ_DIR)/replay_$$t$(EXE) tests/fuzz/corpus/$$t/* || exit 1; \
+	done
+
+# --- Reproducible benchmarks on the standard JSON datasets ---
+# Pinned to one commit of miloyip/nativejson-benchmark and checked by SHA-256.
+
+BENCH_DATA = bench/data
+BENCH_ITER ?= 20
+
+bench-data:
+	@sh bench/fetch.sh $(BENCH_DATA)
+
+bench: cli bench-data
+	@for f in twitter canada citm_catalog; do \
+		./$(CLI) bench $(BENCH_DATA)/$$f.json --iterations $(BENCH_ITER) || exit 1; \
+	done
+
 WASM_EXPORTS = _malloc,_free,_nyxj_wasm_version,_nyxj_wasm_free,_nyxj_wasm_format,_nyxj_wasm_minify,_nyxj_wasm_validate,_nyxj_wasm_query,_nyxj_wasm_repair,_nyxj_wasm_schema,_nyxj_wasm_diff,_nyxj_wasm_msgpack_size
 
 wasm:
@@ -140,7 +201,8 @@ wasm:
 		-s EXPORTED_FUNCTIONS=$(WASM_EXPORTS) \
 		-s EXPORTED_RUNTIME_METHODS=ccall,cwrap,UTF8ToString,stringToNewUTF8 \
 		-o $(BUILD)/wasm/nyxj.js
-	@echo "WebAssembly build: $(BUILD)/wasm/nyxj.js + nyxj.wasm"
+	cp src/wasm/nyxj.d.ts $(BUILD)/wasm/nyxj.d.ts
+	@echo "WebAssembly build: $(BUILD)/wasm/nyxj.js + nyxj.wasm + nyxj.d.ts"
 
 DIST_DIR = dist/nyxj-$(VERSION)-$(PLATFORM)
 

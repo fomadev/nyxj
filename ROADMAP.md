@@ -35,57 +35,42 @@ indicative: features ship when they are ready and well tested.
 | Green Ops | Eco-Throttle on CPU temperature and load | `nyxj_http.h` |
 | Resilience | Heuristic repair of malformed JSON | `nyxj_repair.h` |
 | Bandwidth | Differential state tracking (JSON Patch, Merge Patch) | `nyxj_patch.h` |
+| Ergonomics | `NYXJ_ARRAY_FOREACH` / `NYXJ_OBJECT_FOREACH` iteration macros | `nyxj.h` |
+| Security | Public strict UTF-8 validator with an SSE2 / NEON ASCII fast path | `nyxj.h` |
+| Security | Per-client rate limiting, idle connection timeout, default security headers | `nyxj_http.h` |
+| Observability | `X-Request-Id` and W3C `traceparent` propagation, ids in every log line | `nyxj_http.h`, `nyxj_log.h` |
+| Durability | Key-value write-ahead log with crash recovery and checkpoints | `nyxj_kv.h` |
+| Cluster | Binary (MessagePack) gossip, still reading JSON from older nodes | `nyxj_cluster.h` |
+| DevX | CLI `--sort-keys`, `--ascii`, multi-file `validate`, `watch` | `nyxj` |
+| DevX | TypeScript definitions for the WebAssembly build | `src/wasm/nyxj.d.ts` |
+| Quality | libFuzzer harnesses (8 targets), Valgrind and corpus replay in CI | `tests/fuzz` |
+| Quality | Reproducible benchmarks on twitter, canada and citm_catalog | `make bench` |
 
 ## Next
 
 - **Embedded scripting**: business logic in Lua or QuickJS on top of the C engine (the Nginx/Redis model).
 - **WebSocket and Server-Sent Events** streaming endpoints, including JSON Patch deltas pushed to clients.
 - **Schema compilation**: pre-compiled validators and mappers for hot schemas, a step towards JIT.
-- **Persistent storage** for the key-value store: a write-ahead log, crash recovery, and replication
-  through the cluster.
+- **Replication** of the key-value store through the cluster (the write-ahead log is in place).
 - **Consensus**: a lightweight Raft layer on top of the gossip membership for leader election.
 - **AVX2 and SVE** scanning paths, regular-expression support for `pattern` and NyxQuery `=~`.
 - **Embedded SDKs** for ESP32 and STM32 with a reduced, allocation-free profile.
-- **Benchmarks** against cJSON, Jansson, yyjson and RapidJSON published with every release, on the
-  standard datasets (`twitter.json`, `canada.json`, `citm_catalog.json`) and covering speed and memory
-  for the SIMD, streaming and zero-copy modes.
+- **Comparative benchmarks** against cJSON, Jansson, yyjson and RapidJSON, published with every release.
+  NyxJ's own benchmarks on the standard datasets already run in CI (`make bench`).
 
 ## Candidate additions
 
-NyxJ already covers more ground than most C JSON libraries. The ideas below target the usual blind spots
-of a hybrid JSON + micro-services engine in C11. Items that NyxJ already provides are not listed: ASan,
-UBSan and LeakSanitizer in CI, sorted keys and ASCII escaping in the serializer, JSON Merge Patch (RFC
-7396), strict UTF-8 and surrogate validation, request body limits, timeouts, graceful shutdown on
-`SIGTERM`, stdin input and clear exit codes in the CLI, and the C struct generator.
+These ideas came out of a review of the usual blind spots of a hybrid JSON + micro-services engine in
+C11. The ones that were missing have been delivered (see the table above); what remains:
 
-### C11 ergonomics and memory safety
-
-- **Iteration and construction helpers**: `NYXJ_FOREACH`-style macros for arrays and objects, chained
-  builders, and one error model (explicit codes plus context) across every module.
-- **Continuous fuzzing**: libFuzzer and AFL++ harnesses for the parser, the repair module, the streaming
-  parser and the arena, run in CI.
-- **Valgrind** job in CI, next to the existing sanitizer job.
-
-### Data and interoperability
-
-- **SIMD-accelerated UTF-8 validation** on the fast path.
-- **CLI flags for serializer options**: `--sort-keys` and `--ascii` on `format` and `minify`.
-- **A stable C ABI** documented as such, to make bindings easy: Rust, Go, Python, and TypeScript type
-  definitions for the WebAssembly build.
-
-### Micro-services, networking and operations (`nyxj-server`)
-
-- **Rate limiting** per IP address or API key.
-- **Default security headers** (`X-Content-Type-Options`, `Content-Security-Policy`, ...).
-- **Tracing**: W3C Trace Context (`traceparent`) and request IDs generated and propagated on every
-  route, written into the structured JSON logs.
-- **Binary gossip**: MessagePack-encoded cluster messages instead of JSON between nodes.
-
-### CLI and developer experience
-
-- **Batch validation**: `nyxj validate a.json b.json ...` with one summary and one exit code for CI
-  pipelines.
-- **Watch mode**: re-run a command when a file changes.
+- **Chained builder helpers** to build nested documents in one expression.
+- **Official language bindings** (Rust, Go, Python) on top of the C API. The C API and the WebAssembly
+  exports are already stable within a major version, and the WebAssembly build ships TypeScript
+  definitions.
+- **Configurable Content-Security-Policy** for services that serve HTML (the default security headers
+  leave it out so that the Swagger UI keeps working).
+- **Event-driven watch mode** (inotify, kqueue, ReadDirectoryChangesW) instead of polling.
+- **Peak-memory figures** in `nyxj bench`, next to the throughput.
 
 ## Research and long-term vision
 
