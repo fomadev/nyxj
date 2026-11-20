@@ -64,6 +64,18 @@ static inline nyxj_value* parse_part(const char* s, size_t len) {
 }
 
 #if defined(NYXJ_FUZZ_PARSE)
+/* Numbers beyond the double range (1e400) parse to +/-infinity, which JSON
+ * cannot represent: the serializer writes null, so such trees cannot round-trip. */
+static bool all_finite(const nyxj_value* v) {
+    if (v->type == NYXJ_NUMBER) return v->as.number - v->as.number == 0;
+    if (v->type == NYXJ_ARRAY) {
+        NYXJ_ARRAY_FOREACH(v, item) if (!all_finite(item)) return false;
+    } else if (v->type == NYXJ_OBJECT) {
+        NYXJ_OBJECT_FOREACH(v, pair) if (!all_finite(pair->value)) return false;
+    }
+    return true;
+}
+
 static void fuzz_one(const uint8_t* data, size_t size) {
     nyxj_parse_options o = nyxj_parse_options_default();
     unsigned mode = (size && (data[0] & 1)) ? NYXJ_PARSE_RELAXED : 0;
@@ -77,7 +89,7 @@ static void fuzz_one(const uint8_t* data, size_t size) {
         FUZZ_ASSERT(text != NULL);
         nyxj_result back = nyxj_parse_n(text, n);
         FUZZ_ASSERT(back.is_valid);
-        FUZZ_ASSERT(nyxj_equals(r.root, back.root));
+        if (all_finite(r.root)) FUZZ_ASSERT(nyxj_equals(r.root, back.root));
         nyxj_free_value(back.root);
         free(text);
         /* The zero-copy view and the streaming parser agree on validity (strict mode). */
