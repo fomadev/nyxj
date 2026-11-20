@@ -3,7 +3,7 @@
 This roadmap tracks where NyxJ comes from and where it is going. Version numbers on future items are
 indicative: features ship when they are ready and well tested.
 
-## Delivered in 2.1.0
+## Delivered in 2.0.0
 
 | Theme | Feature | Module |
 |---|---|---|
@@ -35,6 +35,11 @@ indicative: features ship when they are ready and well tested.
 | Green Ops | Eco-Throttle on CPU temperature and load | `nyxj_http.h` |
 | Resilience | Heuristic repair of malformed JSON | `nyxj_repair.h` |
 | Bandwidth | Differential state tracking (JSON Patch, Merge Patch) | `nyxj_patch.h` |
+
+## Delivered in 2.1.0
+
+| Theme | Feature | Module |
+|---|---|---|
 | Ergonomics | `NYXJ_ARRAY_FOREACH` / `NYXJ_OBJECT_FOREACH` iteration macros | `nyxj.h` |
 | Security | Public strict UTF-8 validator with an SSE2 / NEON ASCII fast path | `nyxj.h` |
 | Security | Per-client rate limiting, idle connection timeout, default security headers | `nyxj_http.h` |

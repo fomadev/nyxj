@@ -6,13 +6,69 @@ All notable changes to NyxJ are documented here. The format follows
 
 ## [2.1.0] - 2026-11-20
 
-NyxJ 2.1.0 is the first release since 1.0.0. It turns the engine into a complete, production-oriented
-platform: a rewritten thread-safe core, a dozen data modules, a web framework with operations tooling and
-hardening (rate limiting, request tracing, security headers), a key-value store with a write-ahead log,
-a WebAssembly build, and continuous fuzzing.
+NyxJ 2.1.0 hardens the platform released in 2.0.0: protections and request tracing for services, a
+write-ahead log for the key-value store, binary cluster gossip, new CLI options, and continuous fuzzing,
+which found and fixed three bugs present in 2.0.0. Everything is backward compatible with 2.0.0.
 
-The 2.0.0 platform was developed on `main` but never tagged or published: its content ships in 2.1.0,
-together with the hardening and quality work that followed. There is no 2.0.0 release.
+### Added
+
+#### Core engine
+- `NYXJ_ARRAY_FOREACH` and `NYXJ_OBJECT_FOREACH` iteration macros (single `for` statements: `break` and
+  `continue` work).
+- `nyxj_utf8_validate()`: the parser's strict UTF-8 validator as a public function, with a 16-byte
+  SSE2 / NEON fast path for ASCII runs.
+- Per-thread log correlation context (`nyxj_log_set_context`) that adds `request_id` and `trace_id` to
+  every log line.
+
+#### Runtime and networking
+- Key-value write-ahead log (`nyxj_kv_wal_open`, `nyxj_kv_checkpoint`, `nyxj_kv_wal_replayed`) with crash
+  recovery: torn records are discarded and every record is idempotent.
+- Per-client token-bucket rate limiting (`rate_limit_rps`, `rate_limit_burst`; keyed by `X-API-Key` or IP,
+  `429` with `Retry-After`, probes exempt, `nyxj_http_rate_limited_total` metric).
+- Idle connection timeout (`idle_timeout_ms`, 60 s by default) that also defeats slowloris clients.
+- Default security headers (`security_headers`): `X-Content-Type-Options`, `X-Frame-Options`,
+  `Referrer-Policy`, and `Strict-Transport-Security` over TLS.
+- Request correlation (`request_id`): `X-Request-Id` kept or generated, W3C `traceparent` propagation,
+  both echoed in responses and available to handlers (`nyxj_req_id`, `nyxj_req_trace_id`,
+  `nyxj_req_traceparent`).
+
+#### Tooling
+- `nyxj` CLI: global `--sort-keys` and `--ascii` options, `validate` on several files with
+  `file:line:col` errors and a CI-friendly exit code, and a `watch` command.
+- `nyxj-server`: `--rate-limit`, `--rate-burst`, `--idle-timeout`, `--no-security-headers`,
+  `--no-request-id`, `--kv-wal` and `--kv-wal-sync` (also as configuration keys).
+- TypeScript definitions for the WebAssembly build (`nyxj.d.ts`, copied by `make wasm`).
+- libFuzzer harnesses for the parser, repair, SAX, NyxQuery, JSON Patch, JSON Schema, MessagePack and
+  UTF-8 validation, with invariant checks and a seed corpus (`make fuzz`, `make fuzz-run`,
+  `make fuzz-replay`); `make valgrind`; reproducible benchmarks on the pinned twitter, canada and
+  citm_catalog datasets (`make bench`). CI runs all three, and the sanitizer job replays the fuzz corpus.
+- Test suite grown to 600+ checks.
+- Documentation: use cases in the README, the "Candidate additions" review in the ROADMAP, and new guide
+  sections on iteration, the write-ahead log, request tracing, service protections, fuzzing and
+  benchmarks.
+
+### Changed
+- Cluster gossip messages are MessagePack (protocol v2). Nodes still read the JSON messages of 2.0.0,
+  but 2.0.0 nodes do not understand v2 messages: upgrade every node of a cluster (the clustering module
+  is experimental).
+- New defaults in the web framework: security headers, request IDs and the 60-second idle timeout are
+  on. Disable them with the matching `nyxj_app_config` fields or server options.
+- On shutdown, `nyxj_app_run` stops accepting connections before draining the requests in progress.
+
+### Fixed
+- `nyxj_diff` read an unterminated buffer when the whole document was replaced (found by fuzzing).
+- JSON Pointer tokens were limited to 511 bytes, so patches produced by `nyxj_diff` for objects with
+  long keys could not be applied (found by fuzzing).
+- Documentation cited the obsolete RFC 7386 for JSON Merge Patch instead of RFC 7396.
+
+### Security
+- The MessagePack decoder rejects maps and arrays as map keys: nested container keys made decoding
+  time grow exponentially, so a 169-byte message could stall a service (found by fuzzing).
+
+## [2.0.0] - 2026-11-07
+
+NyxJ 2.0.0 turns the engine into a complete, production-oriented platform: a rewritten thread-safe core,
+a dozen data modules, a web framework with operations tooling, and a WebAssembly build.
 
 ### Added
 
@@ -31,12 +87,7 @@ together with the hardening and quality work that followed. There is no 2.0.0 re
 - Linear-time serializer with full escaping, shortest round-trip numbers, pretty-printing, sorted keys
   and optional `\uXXXX` output.
 - Structured logging with levels, JSON output, custom sinks and compile-time stripping
-  (`NYXJ_LOG_COMPILE_LEVEL`), plus a per-thread correlation context (`nyxj_log_set_context`) that adds
-  `request_id` and `trace_id` to every line.
-- `NYXJ_ARRAY_FOREACH` and `NYXJ_OBJECT_FOREACH` iteration macros (single `for` statements: `break` and
-  `continue` work).
-- `nyxj_utf8_validate()`: the parser's strict UTF-8 validator as a public function, now with a 16-byte
-  SSE2 / NEON fast path for ASCII runs.
+  (`NYXJ_LOG_COMPILE_LEVEL`).
 
 #### Data modules
 - JSON-to-struct mapping with field descriptors (`nyxj_map.h`), inverse mapping and a C code generator
@@ -45,8 +96,7 @@ together with the hardening and quality work that followed. There is no 2.0.0 re
   string constraints, common formats) with path-aware reports.
 - NyxQuery: JSONPath with recursive descent, wildcards, slices, unions and filter expressions.
 - Differential state tracking: JSON Pointer, JSON Patch diff/apply (atomic) and JSON Merge Patch.
-- MessagePack encoder and decoder. Map keys may be strings or scalars (converted to their JSON text);
-  maps and arrays as keys are rejected.
+- MessagePack encoder and decoder.
 - Zero-copy token view that indexes the original buffer without copying strings.
 - Streaming SAX parser with constant memory, chunked input and multi-document (NDJSON) support.
 - Heuristic repair of almost-JSON (comments, quotes, missing/trailing commas, unclosed structures,
@@ -56,9 +106,7 @@ together with the hardening and quality work that followed. There is no 2.0.0 re
 
 #### Runtime and networking
 - Worker thread pool with bounded queue, backpressure and adjustable concurrency.
-- Embedded key-value store with TTL, atomic counters, prefix listing and JSON snapshots, plus a
-  write-ahead log (`nyxj_kv_wal_open`, `nyxj_kv_checkpoint`) with crash recovery: torn records are
-  discarded and every record is idempotent.
+- Embedded key-value store with TTL, atomic counters, prefix listing and JSON snapshots.
 - Prometheus metrics registry and process/system resource monitoring.
 - Unix domain sockets and a lock-free shared-memory ring buffer for inter-process communication.
 - Express-style router with `:params` and wildcards, middleware chain, 405 handling, CORS and request
@@ -71,29 +119,14 @@ together with the hardening and quality work that followed. There is no 2.0.0 re
 - Safe-Gate reverse proxy that sanitizes requests before forwarding them to an upstream service.
 - Plugin system loading `.so`/`.dll` modules through a versioned host function table.
 - Experimental gossip clustering over UDP with peer discovery, failure detection and load sharing hints.
-  Messages are MessagePack (protocol v2); JSON messages from earlier builds are still accepted.
-- HTTP hardening: per-client token-bucket rate limiting (`X-API-Key` or IP, `429` + `Retry-After`,
-  probes exempt), idle connection timeout (60 s by default), default security headers
-  (`nosniff`, `X-Frame-Options`, `Referrer-Policy`, HSTS over TLS), and the listener is closed first on
-  shutdown.
-- Request correlation: `X-Request-Id` kept or generated, W3C `traceparent` propagation, both echoed in
-  responses and available to handlers (`nyxj_req_id`, `nyxj_req_trace_id`, `nyxj_req_traceparent`).
 
 #### Tooling
-- `nyxj` CLI: validate (several files, `file:line:col` errors, CI exit codes), format, minify, get, query,
-  repair, schema, diff, patch, msgpack, gen-struct, stream, tokens, gate, bench and watch, with global
-  `--sort-keys` and `--ascii` options.
-- `nyxj-server` options for every feature and a JSON configuration file, including `--rate-limit`,
-  `--idle-timeout`, `--kv-wal` and switches for the security headers and request IDs.
-- WebAssembly build of the core (`make wasm`) with a browser demo, a Node.js smoke test and TypeScript
-  definitions (`nyxj.d.ts`).
-- libFuzzer harnesses for the parser, repair, SAX, NyxQuery, JSON Patch, JSON Schema, MessagePack and
-  UTF-8 validation, with invariant checks and a seed corpus (`make fuzz`, `make fuzz-run`,
-  `make fuzz-replay`); Valgrind target (`make valgrind`); reproducible benchmarks on the pinned
-  twitter, canada and citm_catalog datasets (`make bench`).
-- Test suite (600+ checks) covering every module plus a live client/server integration test and an
-  end-to-end smoke script; CI on Linux x64/ARM64, macOS, Windows, sanitizers (with fuzz corpus replay),
-  Valgrind, libFuzzer, benchmarks and WebAssembly.
+- `nyxj` CLI: validate, format, minify, get, query, repair, schema, diff, patch, msgpack, gen-struct,
+  stream, tokens, gate and bench.
+- `nyxj-server` options for every feature and a JSON configuration file.
+- WebAssembly build of the core (`make wasm`) with a browser demo and Node.js smoke test.
+- Test suite (500+ checks) covering every module plus a live client/server integration test and an
+  end-to-end smoke script; CI on Linux x64/ARM64, macOS, Windows, sanitizers and WebAssembly.
 - Release pipeline: a `v*` tag builds and tests Linux x64/ARM64, macOS, Windows and WebAssembly, then
   publishes a GitHub release with generated notes (changelog highlights, grouped commits, pull requests,
   contributors), archives, the OpenAPI document, SHA-256 checksums and build provenance. A manual run
@@ -121,17 +154,12 @@ together with the hardening and quality work that followed. There is no 2.0.0 re
 ### Security
 - Nesting depth is limited by default, closing the stack exhaustion vector of deeply nested payloads.
 - Response headers are sanitized against CR/LF injection; request bodies above `max_body_size` get 413.
-- Per-client rate limiting, idle connection timeout and default security headers in the web framework.
-- The MessagePack decoder rejects maps and arrays as map keys, which could make a 169-byte message take
-  seconds to decode (found by fuzzing).
-- `nyxj_diff` no longer reads an unterminated buffer when the whole document is replaced, and JSON
-  Pointer tokens are no longer limited to 511 bytes (both found by fuzzing).
 
 ### Removed
 - `src/server.c` (replaced by `src/server/main.c`) and the per-example Makefiles.
 
 ### License
-- From 2.1.0, NyxJ is released under the Fordima Public License (FPL) v1.0 (see `LICENSE`). Version 1.0.0
+- From 2.0.0, NyxJ is released under the Fordima Public License (FPL) v1.0 (see `LICENSE`). Version 1.0.0
   remains available under the MIT license.
 
 ## [1.0.0] - 2026-04-23
@@ -142,5 +170,6 @@ together with the hardening and quality work that followed. There is no 2.0.0 re
 - Mongoose-powered REST micro-service (`POST /api/data`).
 - API and client examples, multi-platform build workflow.
 
-[2.1.0]: https://github.com/fomadev/nyxj/compare/v1.0.0...v2.1.0
+[2.1.0]: https://github.com/fomadev/nyxj/compare/v2.0.0...v2.1.0
+[2.0.0]: https://github.com/fomadev/nyxj/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/fomadev/nyxj/releases/tag/v1.0.0
