@@ -396,7 +396,34 @@ static void test_diff_root_replace(void) {
     nyxj_free_value(b);
 }
 
+/* Regression (found by fuzz_patch): pointer tokens were capped at 511 bytes. */
+static void test_patch_long_keys(void) {
+    char key[601];
+    for (int i = 0; i < 600; i++) key[i] = "a~/b"[i % 4];
+    key[600] = '\0';
+    nyxj_value* from = nyxj_new_object();
+    nyxj_object_set_number(from, key, 1);
+    nyxj_object_set_number(from, "keep", 2);
+    nyxj_value* to = nyxj_new_object();
+    nyxj_object_set_number(to, "keep", 2);
+    nyxj_object_set_bool(to, key, true);
+    nyxj_value* d = nyxj_diff(from, to);
+    nyxj_error err;
+    CHECK(d && nyxj_patch_apply(&from, d, &err) && nyxj_equals(from, to));
+    nyxj_free_value(d);
+    d = nyxj_diff(to, NULL);
+    CHECK(d == NULL);
+    nyxj_value* empty = nyxj_new_object();
+    d = nyxj_diff(to, empty); /* remove of the long key */
+    CHECK(d && nyxj_patch_apply(&from, d, &err) && nyxj_equals(from, empty));
+    nyxj_free_value(d);
+    nyxj_free_value(empty);
+    nyxj_free_value(from);
+    nyxj_free_value(to);
+}
+
 void suite_modules(void) {
+    RUN(test_patch_long_keys);
     RUN(test_diff_root_replace);
     RUN(test_map);
     RUN(test_schema);
