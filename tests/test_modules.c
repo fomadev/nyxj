@@ -422,7 +422,24 @@ static void test_patch_long_keys(void) {
     nyxj_free_value(to);
 }
 
+/* Regression (found by fuzz_msgpack): maps used as keys of maps grew exponentially. */
+static void test_msgpack_container_keys(void) {
+    nyxj_error err;
+    uint8_t nested[64];
+    for (int i = 0; i < 40; i++) nested[i] = 0x81; /* map{ map{ map{ ... */
+    nested[40] = 0xC0;
+    CHECK(nyxj_msgpack_decode(nested, 41, &err) == NULL && err.code == NYXJ_ERR_MSGPACK);
+    const uint8_t array_key[] = {0x81, 0x91, 0x01, 0x02};      /* {[1]: 2} */
+    CHECK(nyxj_msgpack_decode(array_key, sizeof(array_key), &err) == NULL);
+    const uint8_t scalar_keys[] = {0x83, 0x07, 0xA1, 'a', 0xC3, 0x01, 0xC0, 0x02}; /* {7:"a", true:1, nil:2} */
+    nyxj_value* v = nyxj_msgpack_decode(scalar_keys, sizeof(scalar_keys), &err);
+    CHECK(v && !strcmp(nyxj_get_string(v, "7"), "a") && nyxj_get_number(v, "true") == 1 &&
+          nyxj_get_number(v, "null") == 2);
+    nyxj_free_value(v);
+}
+
 void suite_modules(void) {
+    RUN(test_msgpack_container_keys);
     RUN(test_patch_long_keys);
     RUN(test_diff_root_replace);
     RUN(test_map);

@@ -40,7 +40,8 @@ a dozen data modules, a web framework with operations tooling, and a WebAssembly
   string constraints, common formats) with path-aware reports.
 - NyxQuery: JSONPath with recursive descent, wildcards, slices, unions and filter expressions.
 - Differential state tracking: JSON Pointer, JSON Patch diff/apply (atomic) and JSON Merge Patch.
-- MessagePack encoder and decoder.
+- MessagePack encoder and decoder. Map keys may be strings or scalars (converted to their JSON text);
+  maps and arrays as keys are rejected.
 - Zero-copy token view that indexes the original buffer without copying strings.
 - Streaming SAX parser with constant memory, chunked input and multi-document (NDJSON) support.
 - Heuristic repair of almost-JSON (comments, quotes, missing/trailing commas, unclosed structures,
