@@ -1,6 +1,6 @@
 # The NyxJ Book
 
-**The complete guide to NyxJ 2.0.0, from your first build to production.**
+**The complete guide to NyxJ 2.1.0, from your first build to production.**
 
 This document teaches NyxJ from the beginning to the end. It assumes no previous knowledge of NyxJ and
 explains every idea before using it, so a beginner can read it in order and come out understanding the
@@ -269,7 +269,7 @@ such as `All tests passed` at the end means your build is healthy.
 ```
 
 ```text
-nyxj 2.0.0
+nyxj 2.1.0
 simd: sse2
 features: core,schema,query,patch,msgpack,view,sax,repair,gate,reliability,arena,threads,simd-sse2,http,router,client,tls,metrics,kv,plugins,ipc,cluster
 ```
@@ -3710,8 +3710,8 @@ int main(void) {
 ```
 
 ```text
-GET /api/info -> 200, NyxJ 2.0.0
-Server: NyxJ/2.0.0
+GET /api/info -> 200, NyxJ 2.1.0
+Server: NyxJ/2.1.0
 POST /api/query -> 200 {"count":2,"matches":[3,7]}
 PUT /api/kv/greeting -> 201 {"key":"greeting","stored":true}
 ```
@@ -3734,7 +3734,7 @@ metrics, behave under load and stop cleanly. NyxJ does most of this for you.
 `GET /health` answers `200` as long as the process is able to respond:
 
 ```json
-{"status":"ok","service":"NyxJ Server","version":"2.0.0","engine":"2.0.0","uptime_s":1.35}
+{"status":"ok","service":"NyxJ Server","version":"2.1.0","engine":"2.1.0","uptime_s":1.35}
 ```
 
 ### Readiness: /ready
@@ -3838,7 +3838,7 @@ removes expired keys from its key-value store and updates Eco-Throttle. If `hear
 also POSTs a small JSON report there (from a worker thread, without blocking requests):
 
 ```json
-{"service":"Todo API","version":"2.0.0","engine":"2.0.0","uptime_s":120.5,"rss_bytes":5242880,"load1":0.42,"eco_level":0}
+{"service":"Todo API","version":"2.1.0","engine":"2.1.0","uptime_s":120.5,"rss_bytes":5242880,"load1":0.42,"eco_level":0}
 ```
 
 ### Eco-Throttle
@@ -4038,7 +4038,7 @@ curl http://localhost:8001/cluster/members
 ### Limits
 
 Clustering is **experimental**. Gossip messages are neither encrypted nor authenticated: use it only on a
-trusted private network. Leader election and data replication are on the roadmap, not in 2.0.0.
+trusted private network. Leader election and data replication are on the roadmap, not in 2.1.0.
 
 ### Recap
 
@@ -4062,7 +4062,7 @@ nyxj-server --config nyxj.json --threads 8
 ```
 
 ```text
-NyxJ Micro-service v2.0.0 (SIMD: sse2)
+NyxJ Micro-service v2.1.0 (SIMD: sse2)
 Server active at: http://0.0.0.0:8000 (docs: /docs, metrics: /metrics)
 Press Ctrl+C to stop.
 ```

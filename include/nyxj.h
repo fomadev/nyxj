@@ -19,9 +19,9 @@ extern "C" {
 /* --- Version --- */
 
 #define NYXJ_VERSION_MAJOR 2
-#define NYXJ_VERSION_MINOR 0
+#define NYXJ_VERSION_MINOR 1
 #define NYXJ_VERSION_PATCH 0
-#define NYXJ_VERSION "2.0.0"
+#define NYXJ_VERSION "2.1.0"
 
 /* --- Default limits (JSON Denial-of-Service protection) --- */
 
