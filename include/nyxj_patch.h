@@ -1,6 +1,6 @@
 /*
  * Differential state tracking: JSON Pointer (RFC 6901), JSON Patch
- * (RFC 6902) and JSON Merge Patch (RFC 7386).
+ * (RFC 6902) and JSON Merge Patch (RFC 7396).
  *
  * Instead of resending a whole document, compute the delta between the
  * previous and the current state and ship only that.
@@ -26,7 +26,7 @@ nyxj_value* nyxj_diff(const nyxj_value* from, const nyxj_value* to);
  */
 bool nyxj_patch_apply(nyxj_value** doc, const nyxj_value* patch, nyxj_error* err);
 
-/* RFC 7386: consumes `target`, returns the merged document. */
+/* RFC 7396: consumes `target`, returns the merged document. */
 nyxj_value* nyxj_merge_patch(nyxj_value* target, const nyxj_value* patch);
 
 /* Smallest merge patch turning `from` into `to` (null marks deletions). */
