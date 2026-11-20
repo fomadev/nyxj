@@ -5,6 +5,7 @@
 #include "app_internal.h"
 #include "../../include/nyxj_cluster.h"
 #include "../../include/nyxj_log.h"
+#include "../../include/nyxj_msgpack.h"
 #include "../core/internal.h"
 
 #include <stdio.h>
@@ -92,16 +93,23 @@ static void udp_in(struct mg_connection* conn, int ev, void* ev_data) {
     (void)ev_data;
     if (ev != MG_EV_READ) return;
     nyxj_cluster* c = conn->fn_data;
-    if (!c->stopped && conn->recv.len > 0) {
-        nyxj_parse_options o = nyxj_parse_options_default();
-        o.max_depth = 8;
-        o.max_input_size = 64 * 1024;
-        nyxj_result r = nyxj_parse_ex((const char*)conn->recv.buf, conn->recv.len, &o);
-        if (r.is_valid) {
-            const char* t = nyxj_get_string(r.root, "t");
-            if (t && strcmp(t, "nyxj-gossip") == 0) merge(c, r.root);
+    if (!c->stopped && conn->recv.len > 0 && conn->recv.len <= 64 * 1024) {
+        nyxj_value* msg = NULL;
+        if (conn->recv.buf[0] == '{') { /* Protocol v1: JSON text (older nodes) */
+            nyxj_parse_options o = nyxj_parse_options_default();
+            o.max_depth = 8;
+            o.max_input_size = 64 * 1024;
+            nyxj_result r = nyxj_parse_ex((const char*)conn->recv.buf, conn->recv.len, &o);
+            msg = r.root;
+        } else { /* Protocol v2: MessagePack (a map never starts with '{') */
+            nyxj_error err;
+            msg = nyxj_msgpack_decode(conn->recv.buf, conn->recv.len, &err);
         }
-        nyxj_free_value(r.root);
+        if (msg) {
+            const char* t = nyxj_get_string(msg, "t");
+            if (t && strcmp(t, "nyxj-gossip") == 0) merge(c, msg);
+        }
+        nyxj_free_value(msg);
     }
     conn->recv.len = 0;
 }
@@ -123,7 +131,7 @@ static nyxj_value* member_value(const member* m, bool self, uint64_t now) {
     return o;
 }
 
-static void send_to(nyxj_cluster* c, const char* addr, const char* payload, size_t len) {
+static void send_to(nyxj_cluster* c, const char* addr, const void* payload, size_t len) {
     struct mg_connection* out = mg_connect(&c->app->mgr, addr, NULL, NULL);
     if (!out) return;
     mg_send(out, payload, len);
@@ -153,7 +161,7 @@ static void gossip_tick(nyxj_app* app, void* user) {
 
     nyxj_value* msg = nyxj_new_object();
     nyxj_object_set_string(msg, "t", "nyxj-gossip");
-    nyxj_object_set_number(msg, "v", 1);
+    nyxj_object_set_number(msg, "v", 2);
     nyxj_value* list = nyxj_new_array();
     nyxj_array_push(list, member_value(&c->self, true, 0));
 
@@ -183,7 +191,8 @@ static void gossip_tick(nyxj_app* app, void* user) {
     nyxj_mutex_unlock(&c->lock);
     nyxj_object_set(msg, "members", list);
     size_t len = 0;
-    char* payload = nyxj_serialize_ex(msg, NULL, &len);
+    /* Binary gossip: MessagePack is smaller and cheaper to decode than JSON. */
+    uint8_t* payload = nyxj_msgpack_encode(msg, &len);
     nyxj_free_value(msg);
     if (!payload) return;
     for (int k = 0; k < ntargets; k++) send_to(c, targets[k], payload, len);

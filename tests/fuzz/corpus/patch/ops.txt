@@ -1,0 +1,2 @@
+/a
+[{"op":"add","path":"/x","value":1},{"op":"remove","path":"/a"}]

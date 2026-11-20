@@ -17,6 +17,34 @@ static nyxj_log_sink g_sink = NULL;
 static void* g_sink_user = NULL;
 static nyxj_mutex g_lock = NYXJ_MUTEX_INITIALIZER;
 
+#if defined(NYXJ_NO_THREADS)
+#define NYXJ_TLS
+#elif defined(_MSC_VER)
+#define NYXJ_TLS __declspec(thread)
+#else
+#define NYXJ_TLS _Thread_local
+#endif
+
+static NYXJ_TLS char t_request_id[65];
+static NYXJ_TLS char t_trace_id[65];
+
+static void copy_ctx(char* dst, const char* src) {
+    size_t n = 0;
+    if (src)
+        for (; src[n] && n < 64; n++) dst[n] = src[n];
+    dst[n] = '\0';
+}
+
+void nyxj_log_set_context(const char* request_id, const char* trace_id) {
+    copy_ctx(t_request_id, request_id);
+    copy_ctx(t_trace_id, trace_id);
+}
+
+void nyxj_log_get_context(const char** request_id, const char** trace_id) {
+    if (request_id) *request_id = t_request_id[0] ? t_request_id : NULL;
+    if (trace_id) *trace_id = t_trace_id[0] ? t_trace_id : NULL;
+}
+
 static const char* level_names[] = {"TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL", "OFF"};
 
 void nyxj_log_set_level(nyxj_log_level level) { g_level = level; }
@@ -92,6 +120,8 @@ void nyxj_log_write(nyxj_log_level level, const char* module, const char* file, 
         nyxj_buf_json_string(&b, module, false);
         nyxj_buf_puts(&b, ",\"msg\":");
         nyxj_buf_json_string(&b, message, false);
+        if (t_request_id[0]) { nyxj_buf_puts(&b, ",\"request_id\":"); nyxj_buf_json_string(&b, t_request_id, false); }
+        if (t_trace_id[0]) { nyxj_buf_puts(&b, ",\"trace_id\":"); nyxj_buf_json_string(&b, t_trace_id, false); }
         if (base) nyxj_buf_printf(&b, ",\"src\":\"%s:%d\"", base, line);
         nyxj_buf_putc(&b, '}');
         if (b.data) fprintf(out, "%s\n", b.data);

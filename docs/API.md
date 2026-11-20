@@ -39,6 +39,10 @@ nyxj_get_number(obj, "price");  nyxj_get_int(obj, "id");  nyxj_get_bool(obj, "ac
 nyxj_get_path(root, "orders[0].items[-1].sku");    /* Dot path, negative indexes from the end */
 nyxj_path_string(root, "user.name", "anonymous");  /* With a fallback */
 nyxj_array_get(arr, i);  nyxj_size(v);  nyxj_type_name(v->type);
+
+NYXJ_ARRAY_FOREACH(arr, item) { ... }              /* item: nyxj_value*, break/continue work */
+NYXJ_OBJECT_FOREACH(obj, pair) { ... }             /* pair->key, pair->value */
+nyxj_utf8_validate(text, len, &bad_offset);        /* Strict RFC 3629, SIMD on ASCII runs */
 ```
 
 ### Building and transforming
@@ -84,6 +88,8 @@ NYXJ_INFO("orders", "processed %d orders", n);
 ```
 
 Compile with `-DNYXJ_LOG_COMPILE_LEVEL=2` to strip TRACE and DEBUG calls from release builds.
+`nyxj_log_set_context(request_id, trace_id)` tags every line of the calling thread (the HTTP layer does it
+for each request).
 
 ## Struct mapping (`nyxj_map.h`)
 
@@ -200,6 +206,8 @@ nyxj_kv* kv = nyxj_kv_create(0);
 nyxj_kv_set(kv, "session:42", value, 30 * 60 * 1000);      /* 30 minute TTL */
 nyxj_kv_incr(kv, "hits", 1, &total);
 nyxj_kv_save(kv, "store.json", &err);
+nyxj_kv_wal_open(kv, "store.wal", false, &err);            /* Replay, then log every change */
+nyxj_kv_checkpoint(kv, "store.json", &err);                /* Snapshot + empty log */
 
 nyxj_metrics* m = nyxj_metrics_create();
 nyxj_metric_inc(nyxj_metrics_counter(m, "orders_total", "Orders", "region=\"eu\""));
@@ -234,8 +242,11 @@ nyxj_app_use(app, auth_middleware, NULL);
 nyxj_app_run(app);
 ```
 
-Handlers read `nyxj_req_param`, `nyxj_req_query`, `nyxj_req_header` and `nyxj_req_json` (parsed lazily
-with the configured limits), and answer with `nyxj_res_json`, `nyxj_res_text`, `nyxj_res_bytes` or
+Hardening settings: `rate_limit_rps` / `rate_limit_burst` (429 per client), `idle_timeout_ms` (60 s),
+`security_headers` and `request_id` (both on by default).
+
+Handlers read `nyxj_req_param`, `nyxj_req_query`, `nyxj_req_header`, `nyxj_req_json` (parsed lazily
+with the configured limits), `nyxj_req_id`, `nyxj_req_trace_id` and `nyxj_req_traceparent`, and answer with `nyxj_res_json`, `nyxj_res_text`, `nyxj_res_bytes` or
 `nyxj_res_error`. Built-in routes: `/health`, `/ready`, `/metrics`, `/api/metrics`, `/openapi.json`, `/docs`.
 
 ```c
@@ -252,3 +263,10 @@ Set `nyxj_http_options.ca_file` to verify server certificates.
 
 See `examples/plugin_hello/hello_plugin.c` for a complete plugin and [SERVER.md](SERVER.md) for the
 cluster options.
+
+## WebAssembly (`src/wasm`)
+
+`make wasm` builds `nyxj.js`, `nyxj.wasm` and the TypeScript definitions `nyxj.d.ts`. The exported
+`nyxj_wasm_*` functions take UTF-8 strings and return a JSON envelope (`{"ok": true, "result": ...}` or
+`{"ok": false, "error": {...}}`) freed with `_nyxj_wasm_free`. This surface, like the C API, is stable
+within a major version: functions may be added, existing signatures do not change.

@@ -22,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #ifdef _WIN32
 #include <fcntl.h>
@@ -30,6 +31,8 @@
 
 static int indent_opt = 2;
 static const char* output_path = NULL;
+static bool sort_keys_opt = false; /* --sort-keys */
+static bool ascii_opt = false;     /* --ascii */
 
 static int fail(const char* what, const nyxj_error* err) {
     fprintf(stderr, "nyxj: %s: %s [%s]\n", what, err->message, nyxj_error_name(err->code));
@@ -49,7 +52,7 @@ static int write_output(const void* data, size_t len, bool newline) {
 }
 
 static int print_value(const nyxj_value* v, int indent) {
-    nyxj_serialize_options o = {indent, false, false};
+    nyxj_serialize_options o = {indent, sort_keys_opt, ascii_opt};
     size_t n;
     char* text = nyxj_serialize_ex(v, &o, &n);
     if (!text) return 1;
@@ -62,19 +65,31 @@ static nyxj_value* load(const char* path, nyxj_error* err) { return nyxj_parse_f
 
 /* --- Commands --- */
 
-static int cmd_validate(int argc, char** argv) {
-    const char* path = argc > 0 ? argv[0] : "-";
+static int validate_one(const char* path) {
     size_t len;
     nyxj_error err;
     char* data = nyxj_read_file(path, &len, &err);
     if (!data) return fail(path, &err);
     nyxj_result r = nyxj_parse_n(data, len);
     free(data);
-    if (!r.is_valid) return fail(path, &r.error);
+    if (!r.is_valid) {
+        fprintf(stderr, "nyxj: %s:%d:%d: %s [%s]\n", path, r.error.line, r.error.column, r.error.message,
+                nyxj_error_name(r.error.code));
+        return 1;
+    }
     printf("%s: valid JSON (%s, %d top-level %s)\n", path, nyxj_type_name(r.root->type), nyxj_size(r.root),
            r.root->type == NYXJ_OBJECT ? "members" : r.root->type == NYXJ_ARRAY ? "items" : "bytes");
     nyxj_free_value(r.root);
     return 0;
+}
+
+/* Validates every file given (stdin when none); exit code 1 if any is invalid. */
+static int cmd_validate(int argc, char** argv) {
+    if (argc <= 1) return validate_one(argc > 0 ? argv[0] : "-");
+    int bad = 0;
+    for (int i = 0; i < argc; i++) bad += validate_one(argv[i]) != 0;
+    printf("%d file(s) checked, %d valid, %d invalid\n", argc, argc - bad, bad);
+    return bad ? 1 : 0;
 }
 
 static int cmd_format(int argc, char** argv, int indent) {
@@ -393,11 +408,61 @@ static int cmd_bench(int argc, char** argv) {
     return 0;
 }
 
+static int dispatch(const char* cmd, int ac, char** av, bool merge);
+
+static bool file_stamp(const char* path, long long* stamp) {
+    struct stat st;
+    if (stat(path, &st) != 0) return false;
+    *stamp = (long long)st.st_mtime * 1000000000LL + (long long)st.st_size;
+    return true;
+}
+
+/* nyxj watch [--interval MS] [--count N] <file> <command> [args...]
+ * Runs `nyxj <command> [args...] <file>` now and again each time the file changes. */
+static int cmd_watch(int argc, char** argv, bool merge) {
+    int interval = 500, count = 0, i = 0;
+    for (; i < argc; i++) {
+        if (!strcmp(argv[i], "--interval") && i + 1 < argc) interval = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--count") && i + 1 < argc) count = atoi(argv[++i]);
+        else break;
+    }
+    if (argc - i < 2) {
+        fprintf(stderr, "usage: nyxj watch [--interval MS] [--count N] <file> <command> [args...]\n");
+        return 2;
+    }
+    const char* path = argv[i];
+    const char* sub = argv[i + 1];
+    if (!strcmp(sub, "watch")) { fprintf(stderr, "nyxj: watch cannot watch itself\n"); return 2; }
+    int nsub = argc - i - 2;
+    char** subv = malloc(sizeof(char*) * (size_t)(nsub + 2));
+    if (!subv) return 1;
+    for (int k = 0; k < nsub; k++) subv[k] = argv[i + 2 + k];
+    subv[nsub] = (char*)path;
+    subv[nsub + 1] = NULL;
+    if (interval < 50) interval = 50;
+
+    long long last = -1, now = 0;
+    int runs = 0, rc = 0;
+    for (;;) {
+        if (file_stamp(path, &now) && now != last) {
+            last = now;
+            if (runs++) printf("--- %s changed ---\n", path);
+            rc = dispatch(sub, nsub + 1, subv, merge);
+            printf("[exit %d]\n", rc);
+            fflush(stdout);
+            if (count > 0 && runs >= count) break;
+        }
+        nyxj_sleep_ms((unsigned)interval);
+    }
+    free(subv);
+    return rc;
+}
+
 static void usage(void) {
     printf("NyxJ %s - JSON toolbox (SIMD: %s)\n\n"
            "Usage: nyxj <command> [options] [file]   (file defaults to stdin, '-' also means stdin)\n\n"
            "Commands:\n"
-           "  validate [file]                 Check syntax, report line and column on error\n"
+           "  validate [files...]             Check syntax (file:line:col on error), exit 1 if any fails\n"
            "  format [--indent N] [file]      Pretty-print\n"
            "  minify [file]                   Compact output\n"
            "  get <path|/pointer> [file]      Extract a value (a.b[0] or /a/b/0)\n"
@@ -412,27 +477,17 @@ static void usage(void) {
            "  tokens [file]                   Dump the zero-copy token view\n"
            "  gate [--strict] [file]          Run the Guardian sanitizer\n"
            "  bench <file> [--iterations N]   Throughput of every engine mode\n"
+           "  watch <file> <command> [args]   Re-run a command when the file changes\n"
+           "                                  (--interval MS, --count N)\n"
            "  version                         Print version and build features\n\n"
-           "Global options: -o FILE (write output to FILE), --indent N\n",
+           "Global options: -o FILE (write output to FILE), --indent N, --sort-keys,\n"
+           "                --ascii (escape non-ASCII characters as \\uXXXX)\n"
+           "Exit codes: 0 success, 1 invalid input or failure, 2 usage error\n",
            NYXJ_VERSION, nyxj_simd_backend());
 }
 
-int main(int argc, char** argv) {
-    /* Pull global options out of argv. */
-    char** args = malloc(sizeof(char*) * (size_t)(argc + 1));
-    if (!args) return 1;
-    int n = 0;
-    bool merge = false;
-    for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "-o") && i + 1 < argc) output_path = argv[++i];
-        else if (!strcmp(argv[i], "--indent") && i + 1 < argc) indent_opt = atoi(argv[++i]);
-        else if (!strcmp(argv[i], "--merge")) merge = true;
-        else args[n++] = argv[i];
-    }
+static int dispatch(const char* cmd, int ac, char** av, bool merge) {
     int rc = 2;
-    const char* cmd = n > 0 ? args[0] : "help";
-    int ac = n > 0 ? n - 1 : 0;
-    char** av = args + 1;
     if (!strcmp(cmd, "validate")) rc = cmd_validate(ac, av);
     else if (!strcmp(cmd, "format")) rc = cmd_format(ac, av, indent_opt > 0 ? indent_opt : 2);
     else if (!strcmp(cmd, "minify")) rc = cmd_format(ac, av, 0);
@@ -448,6 +503,7 @@ int main(int argc, char** argv) {
     else if (!strcmp(cmd, "tokens")) rc = cmd_tokens(ac, av);
     else if (!strcmp(cmd, "gate")) rc = cmd_gate(ac, av);
     else if (!strcmp(cmd, "bench")) rc = cmd_bench(ac, av);
+    else if (!strcmp(cmd, "watch")) rc = cmd_watch(ac, av, merge);
     else if (!strcmp(cmd, "version") || !strcmp(cmd, "--version")) {
         printf("nyxj %s\nsimd: %s\nfeatures: %s\n", nyxj_version(), nyxj_simd_backend(), nyxj_build_features());
         rc = 0;
@@ -457,6 +513,27 @@ int main(int argc, char** argv) {
     } else {
         fprintf(stderr, "nyxj: unknown command '%s' (see 'nyxj help')\n", cmd);
     }
+    return rc;
+}
+
+int main(int argc, char** argv) {
+    /* Pull global options out of argv. */
+    char** args = malloc(sizeof(char*) * (size_t)(argc + 1));
+    if (!args) return 1;
+    int n = 0;
+    bool merge = false;
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "-o") && i + 1 < argc) output_path = argv[++i];
+        else if (!strcmp(argv[i], "--indent") && i + 1 < argc) indent_opt = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--merge")) merge = true;
+        else if (!strcmp(argv[i], "--sort-keys")) sort_keys_opt = true;
+        else if (!strcmp(argv[i], "--ascii")) ascii_opt = true;
+        else args[n++] = argv[i];
+    }
+    const char* cmd = n > 0 ? args[0] : "help";
+    int ac = n > 0 ? n - 1 : 0;
+    char** av = args + 1;
+    int rc = dispatch(cmd, ac, av, merge);
     free(args);
     return rc;
 }

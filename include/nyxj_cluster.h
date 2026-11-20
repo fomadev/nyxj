@@ -2,6 +2,10 @@
  * Experimental decentralized clustering: a UDP gossip protocol through which
  * NyxJ instances discover each other without a central server, share their
  * load, and detect failed peers (alive -> suspect -> dead).
+ *
+ * Gossip messages are MessagePack maps (protocol v2). Nodes still accept the
+ * JSON messages (protocol v1) of older versions, so a cluster can be upgraded
+ * one node at a time.
  */
 #ifndef NYXJ_CLUSTER_H
 #define NYXJ_CLUSTER_H

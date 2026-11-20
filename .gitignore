@@ -49,3 +49,6 @@ dist/
 *.pem
 msgpack.bin
 nyxj_test_snapshot.json*
+
+# Benchmark datasets (make bench-data)
+bench/data/

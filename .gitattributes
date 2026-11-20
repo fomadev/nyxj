@@ -2,3 +2,4 @@
 *.sh text eol=lf
 Makefile text eol=lf
 *.yml text eol=lf
+tests/fuzz/corpus/** binary

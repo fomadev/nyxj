@@ -1,0 +1,2 @@
+{"type":"object","required":["id"],"properties":{"id":{"type":"integer","minimum":1},"tags":{"type":"array","items":{"type":"string"},"maxItems":3}}}
+{"id":0,"tags":["a",1,"b","c"]}

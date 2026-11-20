@@ -75,6 +75,50 @@ jobs:
       - name: Build and test with sanitizers
         run: make -j4 SAN=1 test
 
+      - name: Replay the fuzz corpus with sanitizers
+        run: make SAN=1 fuzz-replay
+
+  valgrind:
+    name: Valgrind
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Valgrind
+        run: sudo apt-get update && sudo apt-get install -y valgrind
+
+      - name: Test suite under Valgrind
+        run: make -j4 OPT="-O1 -g" valgrind
+
+  fuzz:
+    name: Fuzzing (libFuzzer)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the fuzzers
+        run: make fuzz FUZZ_CC=clang
+
+      - name: Fuzz every target
+        run: make fuzz-run FUZZ_CC=clang FUZZ_TIME=20
+
+      - name: Upload crash reproducers
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: build/fuzz/crash_*
+          if-no-files-found: ignore
+
+  bench:
+    name: Benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Standard datasets (twitter, canada, citm_catalog)
+        run: make -j4 bench BENCH_ITER=20
+
   wasm:
     name: WebAssembly
     runs-on: ubuntu-latest

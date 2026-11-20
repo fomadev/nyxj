@@ -192,6 +192,19 @@ bool        nyxj_equals(const nyxj_value* a, const nyxj_value* b);
 int         nyxj_size(const nyxj_value* v); /* Items, members, or string bytes */
 const char* nyxj_type_name(nyxj_type type);
 
+/* --- Iteration helpers ---
+ *
+ *   NYXJ_ARRAY_FOREACH(arr, item)  { ... item is the next nyxj_value* ... }
+ *   NYXJ_OBJECT_FOREACH(obj, pair) { ... pair->key, pair->value ... }
+ *
+ * Each expands to a single `for` statement, so `break` and `continue` work as
+ * usual. NULL or a value of another type gives zero iterations. Do not add or
+ * remove members of the container inside the loop body.
+ */
+#define NYXJ_ARRAY_FOREACH(arr, item)                                                             for (nyxj_value **item##_it_ = ((arr) && (arr)->type == NYXJ_ARRAY) ? (arr)->as.array.items                                                                        : NULL,                                    **item##_end_ = item##_it_ ? item##_it_ + (arr)->as.array.count : NULL,                        *item = NULL;                                                                      item##_it_ < item##_end_ && ((item = *item##_it_), 1); item##_it_++)
+
+#define NYXJ_OBJECT_FOREACH(obj, pair)                                                        for (nyxj_pair* pair = ((obj) && (obj)->type == NYXJ_OBJECT) ? (obj)->as.object.pairs                                                                  : NULL;                           pair; pair = pair->next)
+
 /* --- Getter API --- */
 
 nyxj_value* nyxj_get_member(const nyxj_value* obj, const char* key);
@@ -217,6 +230,13 @@ typedef struct {
 char* nyxj_serialize(const nyxj_value* v);                    /* Compact, caller frees */
 char* nyxj_serialize_pretty(const nyxj_value* v, int indent); /* Pretty, caller frees */
 char* nyxj_serialize_ex(const nyxj_value* v, const nyxj_serialize_options* opts, size_t* out_len);
+
+/* --- Encoding --- */
+
+/* Strict UTF-8 check (RFC 3629: no overlongs, no surrogates, nothing above
+ * U+10FFFF), SIMD-accelerated on ASCII runs. On failure, *bad_offset (when
+ * not NULL) receives the offset of the first invalid byte. */
+bool nyxj_utf8_validate(const char* s, size_t len, size_t* bad_offset);
 
 /* --- Arena allocator (memory pool, no fragmentation, O(1) release) --- */
 

@@ -102,6 +102,17 @@ static inline const char* nyxj_scan_string_special(const char* p, const char* en
 static inline size_t nyxj_utf8_invalid_at(const unsigned char* s, size_t n) {
     size_t i = 0;
     while (i < n) {
+#if defined(NYXJ_SIMD_SSE2)
+        if (i + 16 <= n) { /* ASCII fast path, 16 bytes at a time */
+            __m128i x = _mm_loadu_si128((const __m128i*)(const void*)(s + i));
+            if (_mm_movemask_epi8(x) == 0) { i += 16; continue; }
+        }
+#elif defined(NYXJ_SIMD_NEON)
+        if (i + 16 <= n) {
+            uint8x16_t x = vld1q_u8(s + i);
+            if (vmaxvq_u8(x) < 0x80) { i += 16; continue; }
+        }
+#endif
         if (i + 8 <= n) { /* ASCII fast path, 8 bytes at a time */
             uint64_t w;
             memcpy(&w, s + i, 8);

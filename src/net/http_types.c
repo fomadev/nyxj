@@ -136,6 +136,15 @@ nyxj_value* nyxj_req_json(nyxj_request* req) {
 
 const nyxj_error* nyxj_req_json_error(const nyxj_request* req) { return req ? &req->json_error_ : NULL; }
 
+const char* nyxj_req_id(const nyxj_request* req) { return req ? req->request_id_ : ""; }
+const char* nyxj_req_trace_id(const nyxj_request* req) { return req ? req->trace_id_ : ""; }
+
+bool nyxj_req_traceparent(const nyxj_request* req, char* out, size_t out_size) {
+    if (!req || !out || out_size < 56 || !req->trace_id_[0]) return false;
+    snprintf(out, out_size, "00-%s-%s-01", req->trace_id_, req->span_id_);
+    return true;
+}
+
 /* --- Response helpers --- */
 
 static void set_body(nyxj_response* res, const void* data, size_t len) {

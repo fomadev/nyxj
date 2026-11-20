@@ -2,6 +2,7 @@
 #include "../common/buf.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* --- JSON Pointer --- */
@@ -43,23 +44,25 @@ nyxj_value* nyxj_pointer_get(const nyxj_value* root, const char* pointer) {
     if (!root || !pointer) return NULL;
     const nyxj_value* cur = root;
     const char* p = pointer;
-    char tok[512];
-    while (*p) {
-        if (*p != '/') return NULL;
+    if (!*p) return (nyxj_value*)cur;
+    size_t cap = strlen(pointer) + 1; /* A token is never longer than the pointer */
+    char* tok = malloc(cap);
+    if (!tok) return NULL;
+    while (*p && cur) {
+        if (*p != '/') { cur = NULL; break; }
         bool ok;
-        p = next_token(p + 1, tok, sizeof(tok), &ok);
-        if (!ok) return NULL;
+        p = next_token(p + 1, tok, cap, &ok);
+        if (!ok) { cur = NULL; break; }
         if (cur->type == NYXJ_OBJECT) {
             cur = nyxj_get_member(cur, tok);
         } else if (cur->type == NYXJ_ARRAY) {
             int idx;
-            if (!parse_index(tok, cur->as.array.count, false, &idx)) return NULL;
-            cur = cur->as.array.items[idx];
+            cur = parse_index(tok, cur->as.array.count, false, &idx) ? cur->as.array.items[idx] : NULL;
         } else {
-            return NULL;
+            cur = NULL;
         }
-        if (!cur) return NULL;
     }
+    free(tok);
     return (nyxj_value*)cur;
 }
 
@@ -83,26 +86,31 @@ static nyxj_value* resolve_parent(nyxj_value* root, const char* path, char* last
 
 static bool op_add(nyxj_value** doc, const char* path, nyxj_value* val, nyxj_error* err) {
     if (!*path) { nyxj_free_value(*doc); *doc = val; return true; }
-    char last[512];
-    nyxj_value* parent = resolve_parent(*doc, path, last, sizeof(last));
-    if (!parent) { nyxj_error_set(err, NYXJ_ERR_PATCH_FAILED, "add: parent of '%s' does not exist", path); nyxj_free_value(val); return false; }
-    if (parent->type == NYXJ_OBJECT) {
-        if (nyxj_object_set(parent, last, val)) return true;
+    size_t cap = strlen(path) + 1;
+    char* last = malloc(cap);
+    nyxj_value* parent = last ? resolve_parent(*doc, path, last, cap) : NULL;
+    bool done = false;
+    if (!parent) {
+        nyxj_error_set(err, NYXJ_ERR_PATCH_FAILED, "add: parent of '%s' does not exist", path);
+    } else if (parent->type == NYXJ_OBJECT) {
+        done = nyxj_object_set(parent, last, val);
+        if (!done) nyxj_error_set(err, NYXJ_ERR_OUT_OF_MEMORY, NULL);
     } else if (parent->type == NYXJ_ARRAY) {
         int idx;
-        if (parse_index(last, parent->as.array.count, true, &idx) && nyxj_array_insert(parent, idx, val)) return true;
-        nyxj_error_set(err, NYXJ_ERR_PATCH_FAILED, "add: invalid array index in '%s'", path);
-        nyxj_free_value(val);
-        return false;
+        done = parse_index(last, parent->as.array.count, true, &idx) && nyxj_array_insert(parent, idx, val);
+        if (!done) nyxj_error_set(err, NYXJ_ERR_PATCH_FAILED, "add: invalid array index in '%s'", path);
+    } else {
+        nyxj_error_set(err, NYXJ_ERR_PATCH_FAILED, "add: cannot add into '%s'", path);
     }
-    nyxj_error_set(err, NYXJ_ERR_PATCH_FAILED, "add: cannot add into '%s'", path);
-    nyxj_free_value(val);
-    return false;
+    free(last);
+    if (!done) nyxj_free_value(val);
+    return done;
 }
 
 static nyxj_value* op_detach(nyxj_value* doc, const char* path, nyxj_error* err, const char* opname) {
-    char last[512];
-    nyxj_value* parent = *path ? resolve_parent(doc, path, last, sizeof(last)) : NULL;
+    size_t cap = strlen(path) + 1;
+    char* last = *path ? malloc(cap) : NULL;
+    nyxj_value* parent = last ? resolve_parent(doc, path, last, cap) : NULL;
     nyxj_value* out = NULL;
     if (parent && parent->type == NYXJ_OBJECT) {
         out = nyxj_object_detach(parent, last);
@@ -110,6 +118,7 @@ static nyxj_value* op_detach(nyxj_value* doc, const char* path, nyxj_error* err,
         int idx;
         if (parse_index(last, parent->as.array.count, false, &idx)) out = nyxj_array_detach(parent, idx);
     }
+    free(last);
     if (!out) nyxj_error_set(err, NYXJ_ERR_PATCH_FAILED, "%s: path '%s' does not exist", opname, path);
     return out;
 }
