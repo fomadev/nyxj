@@ -164,7 +164,13 @@ static char* decode_key(dctx* c) {
     if (t == 0xD9 || t == 0xC4) { c->p++; if (!read_len(c, 1, &n)) goto bad; return decode_raw(c, n); }
     if (t == 0xDA || t == 0xC5) { c->p++; if (!read_len(c, 2, &n)) goto bad; return decode_raw(c, n); }
     if (t == 0xDB || t == 0xC6) { c->p++; if (!read_len(c, 4, &n)) goto bad; return decode_raw(c, n); }
-    { /* Non-string keys (integers, ...) are converted to their JSON text */
+    /* Containers as keys are rejected: JSON cannot express them, and nesting
+     * them would make each level re-escape the one below (exponential growth). */
+    if ((t & 0xE0) == 0x80 || (t >= 0xDC && t <= 0xDF)) {
+        dfail(c, "map keys must be strings or scalars");
+        return NULL;
+    }
+    { /* Scalar keys (integers, booleans, nil, floats) become their JSON text */
         nyxj_value* k = decode_value(c);
         if (!k) return NULL;
         char* s = nyxj_serialize(k);
