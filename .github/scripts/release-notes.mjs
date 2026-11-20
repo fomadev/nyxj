@@ -2,7 +2,7 @@
 /*
  * Generates the GitHub release notes for a NyxJ version.
  *
- *   node .github/scripts/release-notes.mjs --tag v2.0.0 [--target <ref>] [--assets dist] [--out notes.md]
+ *   node .github/scripts/release-notes.mjs --tag v2.1.0 [--target <ref>] [--assets dist] [--out notes.md]
  *
  * Sources, in order of importance:
  *   1. The CHANGELOG.md section of the version (curated highlights)

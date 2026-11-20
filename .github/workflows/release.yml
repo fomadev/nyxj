@@ -1,6 +1,6 @@
 name: Release
 
-# Pushing a tag such as v2.0.0 builds, tests and packages every platform, then publishes a GitHub
+# Pushing a tag such as v2.1.0 builds, tests and packages every platform, then publishes a GitHub
 # release with generated notes, checksums and build provenance. Run it manually (workflow_dispatch)
 # to rehearse a release: everything is built and the notes are previewed, but nothing is published.
 
@@ -10,9 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Version to rehearse, e.g. v2.0.0 (dry run, nothing is published)
+        description: Version to rehearse, e.g. v2.1.0 (dry run, nothing is published)
         required: true
-        default: v2.0.0
+        default: v2.1.0
 
 permissions:
   contents: read

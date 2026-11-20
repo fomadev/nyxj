@@ -3,7 +3,7 @@
 This roadmap tracks where NyxJ comes from and where it is going. Version numbers on future items are
 indicative: features ship when they are ready and well tested.
 
-## Delivered in 2.0.0
+## Delivered in 2.1.0
 
 | Theme | Feature | Module |
 |---|---|---|

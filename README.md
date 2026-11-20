@@ -98,7 +98,7 @@ The NyxJ sources are released under the **Fordima Public License (FPL) v1.0**, s
   standalone product, or offering a paid hosted version based on it requires a paid commercial license from
   Fordima Inc. For commercial licensing, please contact the management of Fordima Inc.
 
-Versions of NyxJ before X.Y.Z were released under the MIT license and remain available under those terms.
+Versions of NyxJ before 2.1.0 were released under the MIT license and remain available under those terms.
 
 The networking layer (`vendor/mongoose`) is [Mongoose](https://github.com/cesanta/mongoose) by Cesanta,
 dual-licensed under GPL-2.0-only or a commercial license. Binaries that include it (`nyxj-server`, the

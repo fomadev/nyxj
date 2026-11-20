@@ -4,10 +4,15 @@ All notable changes to NyxJ are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/). The release pipeline publishes the section matching each tag.
 
-## [2.0.0] - Unreleased
+## [2.1.0] - 2026-11-20
 
-NyxJ 2.0.0 turns the engine into a complete, production-oriented platform: a rewritten thread-safe core,
-a dozen data modules, a web framework with operations tooling, and a WebAssembly build.
+NyxJ 2.1.0 is the first release since 1.0.0. It turns the engine into a complete, production-oriented
+platform: a rewritten thread-safe core, a dozen data modules, a web framework with operations tooling and
+hardening (rate limiting, request tracing, security headers), a key-value store with a write-ahead log,
+a WebAssembly build, and continuous fuzzing.
+
+The 2.0.0 platform was developed on `main` but never tagged or published: its content ships in 2.1.0,
+together with the hardening and quality work that followed. There is no 2.0.0 release.
 
 ### Added
 
@@ -86,7 +91,7 @@ a dozen data modules, a web framework with operations tooling, and a WebAssembly
   UTF-8 validation, with invariant checks and a seed corpus (`make fuzz`, `make fuzz-run`,
   `make fuzz-replay`); Valgrind target (`make valgrind`); reproducible benchmarks on the pinned
   twitter, canada and citm_catalog datasets (`make bench`).
-- Test suite (590+ checks) covering every module plus a live client/server integration test and an
+- Test suite (600+ checks) covering every module plus a live client/server integration test and an
   end-to-end smoke script; CI on Linux x64/ARM64, macOS, Windows, sanitizers (with fuzz corpus replay),
   Valgrind, libFuzzer, benchmarks and WebAssembly.
 - Release pipeline: a `v*` tag builds and tests Linux x64/ARM64, macOS, Windows and WebAssembly, then
@@ -116,9 +121,18 @@ a dozen data modules, a web framework with operations tooling, and a WebAssembly
 ### Security
 - Nesting depth is limited by default, closing the stack exhaustion vector of deeply nested payloads.
 - Response headers are sanitized against CR/LF injection; request bodies above `max_body_size` get 413.
+- Per-client rate limiting, idle connection timeout and default security headers in the web framework.
+- The MessagePack decoder rejects maps and arrays as map keys, which could make a 169-byte message take
+  seconds to decode (found by fuzzing).
+- `nyxj_diff` no longer reads an unterminated buffer when the whole document is replaced, and JSON
+  Pointer tokens are no longer limited to 511 bytes (both found by fuzzing).
 
 ### Removed
 - `src/server.c` (replaced by `src/server/main.c`) and the per-example Makefiles.
+
+### License
+- From 2.1.0, NyxJ is released under the Fordima Public License (FPL) v1.0 (see `LICENSE`). Version 1.0.0
+  remains available under the MIT license.
 
 ## [1.0.0] - 2026-04-23
 
@@ -128,5 +142,5 @@ a dozen data modules, a web framework with operations tooling, and a WebAssembly
 - Mongoose-powered REST micro-service (`POST /api/data`).
 - API and client examples, multi-platform build workflow.
 
-[2.0.0]: https://github.com/fomadev/nyxj/compare/v1.0.0...HEAD
+[2.1.0]: https://github.com/fomadev/nyxj/compare/v1.0.0...v2.1.0
 [1.0.0]: https://github.com/fomadev/nyxj/releases/tag/v1.0.0
