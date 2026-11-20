@@ -11,7 +11,8 @@ void nyxj_buf_init(nyxj_buf* b, size_t initial) {
     b->len = 0;
     b->cap = 0;
     b->oom = false;
-    if (initial) nyxj_buf_reserve(b, initial);
+    /* Always NUL-terminated once allocated: readers may use data before any write. */
+    if (initial && nyxj_buf_reserve(b, initial)) b->data[0] = '\0';
 }
 
 bool nyxj_buf_reserve(nyxj_buf* b, size_t extra) {
