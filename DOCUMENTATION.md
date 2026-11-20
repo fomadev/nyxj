@@ -519,7 +519,7 @@ nyxj schema user.schema.json user.json
 printf '{"name":"Ada","age":36,"langs":["c"]}' > v1.json
 printf '{"name":"Ada","age":37,"langs":["c","go"],"city":"London"}' > v2.json
 nyxj diff v1.json v2.json            # RFC 6902 JSON Patch
-nyxj diff --merge v1.json v2.json    # RFC 7386 Merge Patch
+nyxj diff --merge v1.json v2.json    # RFC 7396 Merge Patch
 nyxj diff v1.json v2.json -o changes.json
 nyxj patch v1.json changes.json      # applies the patch: gives v2 back
 ```
@@ -1936,7 +1936,7 @@ A JSON Patch is an array of operations, applied in order:
 `test` does not change anything: it checks a value and makes the whole patch fail if it differs. It is
 perfect to make sure you are patching the version you think you are patching.
 
-### JSON Merge Patch (RFC 7386): a partial document
+### JSON Merge Patch (RFC 7396): a partial document
 
 A merge patch is simpler: it looks like the document itself, containing only the members that change.
 `null` means "delete this member".

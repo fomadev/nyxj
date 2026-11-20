@@ -21,6 +21,19 @@ core to WebAssembly.
 - **Operations**: Prometheus metrics, health and readiness probes, embedded key-value store, plugins, IPC
   and gossip clustering.
 
+## Where NyxJ shines
+
+- **Embedded and systems C/C++**: fast, portable JSON with no heavy dependencies and a small RAM
+  footprint.
+- **Security**: limits on depth, size, strings and element counts, UTF-8 validation, the Guardian
+  sanitizer and protection against JSON-based attacks.
+- **Critical applications**: checksums, shadow (double) execution and triple modular redundancy.
+- **Large-scale data processing**: a constant-memory SAX parser, ideal for very large files and
+  continuous streams.
+- **Micro-services in C**: HTTP server, HTTPS client, key-value store, metrics, clustering and plugins in
+  a single library.
+- **WebAssembly**: run the engine in the browser or in Node.js.
+
 ## Quick start
 
 ```bash

@@ -128,7 +128,7 @@ nyxj_query_free(q);
 ```c
 nyxj_value* ops = nyxj_diff(previous, current);   /* RFC 6902 */
 nyxj_patch_apply(&doc, ops, &err);                /* Atomic: doc unchanged on failure */
-nyxj_value* delta = nyxj_merge_diff(previous, current);  /* RFC 7386 */
+nyxj_value* delta = nyxj_merge_diff(previous, current);  /* RFC 7396 */
 doc = nyxj_merge_patch(doc, delta);
 nyxj_pointer_get(doc, "/store/book/0/title");     /* RFC 6901 */
 ```

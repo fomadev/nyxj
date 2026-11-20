@@ -166,7 +166,7 @@ static void h_patch(nyxj_request* req, nyxj_response* res) {
     if (!patch) return;
     nyxj_value* out = nyxj_clone(doc);
     nyxj_error err;
-    if (patch->type == NYXJ_OBJECT) { /* Merge patch (RFC 7386) */
+    if (patch->type == NYXJ_OBJECT) { /* Merge patch (RFC 7396) */
         nyxj_res_json(res, 200, nyxj_merge_patch(out, patch));
         return;
     }
@@ -305,7 +305,7 @@ static void register_routes(nyxj_app* app) {
           "{\"type\":\"object\",\"required\":[\"query\",\"data\"],\"properties\":{\"query\":{\"type\":\"string\"},\"data\":{}}}",
           "{\"type\":\"object\",\"properties\":{\"count\":{\"type\":\"integer\"},\"matches\":{\"type\":\"array\"}}}");
     ROUTE("POST", "/api/repair", h_repair, A, "json", "Repair almost-JSON text (fuzzy parsing)", NULL, NULL);
-    ROUTE("POST", "/api/diff", h_diff, A, "json", "JSON Patch between two documents (?mode=merge for RFC 7386)",
+    ROUTE("POST", "/api/diff", h_diff, A, "json", "JSON Patch between two documents (?mode=merge for RFC 7396)",
           "{\"type\":\"object\",\"required\":[\"from\",\"to\"]}", NULL);
     ROUTE("POST", "/api/patch", h_patch, A, "json", "Apply a JSON Patch (array) or a Merge Patch (object)",
           "{\"type\":\"object\",\"required\":[\"document\",\"patch\"]}", NULL);
